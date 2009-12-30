@@ -1,22 +1,32 @@
+#!/usr/bin/env python
+
 import sys
 import urlparse
+import optparse
 import os.path
 
 from twisted.internet import reactor
 from twisted.web import client
 
+if sys.version_info < (2, 4):
+    raise ImportError("Cannot run with Python version < 2.4")
 
 def to_dict(l):
     i = (f.split('=') for f in l.split(','))
     d = dict((k.strip(), v.strip()) for (k,v) in i)
     return d
 
+def make_url(base_url, url):
+    if urlparse.urlsplit(url).scheme != '':
+        return url
+    return urlparse.urljoin(base_url, url)
+
 class M3U8(object):
 
     def __init__(self, url=None):
         self.url = url
 
-        self._playlists = [] # main list of programs & bandwidth
+        self._programs = [] # main list of programs & bandwidth
         self._files = {} # the current program playlist
         self._first_sequence = 1 # the first sequence to start fetching
         self._last_sequence = None # the last sequence, to compute reload delay
@@ -25,12 +35,17 @@ class M3U8(object):
         self._last_content = None
         self.endlist = False # wether the list ended and should not be refreshed
 
-    def get_playlist(self, program_id=None, bandwidth=None):
-        if len(self._playlists):
-            return self._playlists[0]['uri']
-        return None
+    def has_programs(self):
+        return len(self._programs) != 0
+
+    def get_program_playlist(self, program_id=None, bandwidth=None):
+        # return the (uri, dict) of the best matching playlist
+        if not self.has_programs():
+            raise
+        return (self._programs[0]['uri'], self._programs[0])
 
     def reload_delay(self):
+        # return the time between request updates, in seconds
         if self.endlist or not self._last_sequence:
             raise
 
@@ -45,8 +60,12 @@ class M3U8(object):
         else:
             return self._reload_delay * 3.0
 
-    def files(self):
-        if len(self._files) == 0:
+    def has_files(self):
+        return len(self._files) != 0
+
+    def iter_files(self):
+        # return an iter on the playlist media files
+        if not self.has_files():
             return
 
         current = self._first_sequence
@@ -59,6 +78,8 @@ class M3U8(object):
             yield f
 
     def update(self, content):
+        # update this "constructed" playlist,
+        # return wether it has actually been updated
         if self._last_content and content == self.last_content:
             self._update_tries += 1
             return False
@@ -80,6 +101,7 @@ class M3U8(object):
             raise
 
         self.target_duration = None
+        discontinuity = False
         i = 1
         for l in self._lines:
             if l.startswith('#EXT-X-STREAM-INF'):
@@ -91,12 +113,18 @@ class M3U8(object):
             elif l.startswith('#EXT-X-MEDIA-SEQUENCE'):
                 self.media_sequence = int(l[22:])
                 i = self.media_sequence
+            elif l.startswith('EXT-X-DISCONTINUITY'):
+                discontinuity = True
+            elif l.startswith('EXT-X-PROGRAM-DATE-TIME'):
+                print l
             elif l.startswith('#EXTINF'):
                 v = l[8:].split(',')
                 d = dict(file=self._lines.next(),
                          title=v[1].strip(),
                          duration=int(v[0]),
-                         sequence=i)
+                         sequence=i,
+                         discontinuity=discontinuity)
+                discontinuity = False
                 self._set_file(i, d)
                 i += 1
                 if i > self._last_sequence:
@@ -106,13 +134,13 @@ class M3U8(object):
             elif len(l.strip()) != 0:
                 print l
 
-        if not self.get_playlist() and not self.target_duration:
+        if not self.has_programs() and not self.target_duration:
             raise
 
         return True
 
     def _add_playlist(self, d):
-        self._playlists.append(d)
+        self._programs.append(d)
 
     def _set_file(self, sequence, d):
         if sequence < self._first_sequence:
@@ -120,7 +148,7 @@ class M3U8(object):
         self._files[sequence] = d
 
     def __repr__(self):
-        return "M3U8 %r %r" % (self._playlists, self._files)
+        return "M3U8 %r %r" % (self._programs, self._files)
 
 class HLSPlayer(object):
 
@@ -141,52 +169,85 @@ class HLSPlayer(object):
         d.addBoth(lambda _: f.close())
         return d
 
-    def _download_next_file(self):
-        f = self._files.next()
-        l = urlparse.urljoin(self.playlist.url, f['file'])
+    def _download_file(self, f):
+        l = make_url(self.playlist.url, f['file'])
         path = os.path.join('/tmp/', f['file'])
         d = self._download_page(l, path)
-        d.addCallback(self._got_file, l, path, f['duration'])
+        d.addCallback(self._got_file, l, path, f)
+        return d
 
-    def _got_file(self, _, l, path, duration):
+    def _got_file(self, _, l, path, f):
         print "got " + l + " in " + path
-        self._next_download = reactor.callLater(duration, self._download_next_file)
+        try:
+            next = self._files.next()
+            self._next_download = reactor.callLater(f['duration'], self._download_file, next)
+        except StopIteration:
+            pass
 
     def _get_files(self, files):
         self._files = files
-        self._download_next_file()
+        try:
+            next = self._files.next()
+            self._download_file(next)
+        except StopIteration:
+            pass
 
-    def _refresh_playlist(self, pl):
-        self._get_page(pl.url).addCallback(self._got_playlist, pl.url, pl)
-
-    def _got_playlist(self, content, url, pl):
-        if not pl:
-            pl = M3U8(url)
-
+    def _got_playlist_content(self, content, pl):
         if not pl.update(content):
-            reactor.callLater(pl.reload_delay(), self._refresh, pl)
+            # if the playlist cannout be loaded, start a reload timer
+            reactor.callLater(pl.reload_delay(), self._reload_playlist, pl)
             return
 
-        # if we got a program playlist, save it
-        l = pl.get_playlist(1, 200000)
-        if not self.program and l:
+        if pl.has_programs():
+            # if we got a program playlist, save it and start a program
             self.program = pl
-            l = urlparse.urljoin(self.url, l)
-            self._get_page(l).addCallback(self._got_playlist, l, None)
-        else:
+            (program_url, _) = pl.get_program_playlist(1, 200000)
+            l = make_url(self.url, program_url)
+            self._get_page(l).addCallback(self._got_playlist_content, M3U8(l))
+        elif pl.has_files():
+            # we got sequence playlist, start reloading it regularly
             self.playlist = pl
-            self._get_files(pl.files())
+            self._get_files(pl.iter_files())
             if not pl.endlist:
-                reactor.callLater(pl.reload_delay(), self._refresh, pl)
+                reactor.callLater(pl.reload_delay(), self._reload_playlist, pl)
+        else:
+            raise
+
+    def _reload_playlist(self, pl):
+        self._get_page(pl.url).addCallback(self._got_playlist_content, pl)
 
     def start(self):
-        self._get_page(self.url).addCallback(self._got_playlist, self.url, None)
+        self._reload_playlist(M3U8(self.url))
 
     def stop(self):
         pass
 
-if __name__ == '__main__':
+def main():
+    parser = optparse.OptionParser(usage='%prog [options] url...', version="%prog")
 
-    player = HLSPlayer(sys.argv[1])
-    player.start()
+    parser.add_option('-v', '--verbose', action="store_true",
+                      dest='verbose', default=False,
+                      help='print some debugging (default: %default)')
+    parser.add_option('-d', '--download', action="store_true",
+                      dest='download', default=False,
+                      help='only download files (default: %default)')
+    parser.add_option('-n', '--number', action="store",
+                      dest='n', default=1, type="int",
+                      help='number of player to start (default: %default)')
+
+    options, args = parser.parse_args()
+
+    if len(args) == 0:
+        parser.print_help()
+        sys.exit(1)
+    
+    for url in args:
+        for l in range(options.n):
+            player = HLSPlayer(url)
+            player.start()
+
     reactor.run()
+
+
+if __name__ == '__main__':
+    sys.exit(main())
