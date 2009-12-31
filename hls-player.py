@@ -81,7 +81,12 @@ class M3U8(object):
         if not self.has_files():
             return
 
-        current = max(self._first_sequence, self._last_sequence - 3)
+        if not self.endlist:
+            current = max(self._first_sequence, self._last_sequence - 3)
+        else:
+            # tread differently on-demand playlists?
+            current = self._first_sequence
+
         while True:
             try:
                 f = self._files[current]
@@ -171,20 +176,22 @@ class M3U8(object):
 
 class HLSFetcher(object):
 
-    def __init__(self, url, path=None):
+    def __init__(self, url, path=None, program=1, bitrate=200000):
         self.url = url
         self.path = path
         if not self.path:
             self.path = tempfile.mkdtemp()
+        self.program = program
+        self.bitrate = bitrate
 
-        self.program = None
-        self.playlist = None
+        self._program_playlist = None
+        self._file_playlist = None
         self._cookies = {}
         self._cached_files = {}
 
         self._files = None # the iter of the playlist files download
         self._next_download = None # the delayed download defer, if any
-        self._playlistd = None # the defer to wait until new files are added to playlist
+        self._file_playlisted = None # the defer to wait until new files are added to playlist
 
     def _get_page(self, url):
         return client.getPage(url, cookies=self._cookies)
@@ -207,7 +214,7 @@ class HLSFetcher(object):
         return (path, l, f)
 
     def _download_file(self, f):
-        l = make_url(self.playlist.url, f['file'])
+        l = make_url(self._file_playlist.url, f['file'])
         name = urlparse.urlparse(f['file']).path.split('/')[-1]
         path = os.path.join(self.path, name)
         d = self._download_page(l, path)
@@ -225,10 +232,10 @@ class HLSFetcher(object):
                 else:
                     delay = last_file['duration']
             return deferLater(reactor, delay, self._download_file, next)
-        elif not self.playlist.endlist:
-            self._playlistd = defer.Deferred()
-            self._playlistd.addCallback(lambda x: self._get_next_file(last_file))
-            return self._playlistd
+        elif not self._file_playlist.endlist:
+            self._file_playlisted = defer.Deferred()
+            self._file_playlisted.addCallback(lambda x: self._get_next_file(last_file))
+            return self._file_playlisted
 
     def _handle_end(self, failure):
         failure.trap(StopIteration)
@@ -249,20 +256,20 @@ class HLSFetcher(object):
     def _playlist_updated(self, pl):
         if pl.has_programs():
             # if we got a program playlist, save it and start a program
-            self.program = pl
-            (program_url, _) = pl.get_program_playlist(1, 200000)
+            self._program_playlist = pl
+            (program_url, _) = pl.get_program_playlist(self.program, self.bitrate)
             l = make_url(self.url, program_url)
             return self._reload_playlist(M3U8(l))
         elif pl.has_files():
             # we got sequence playlist, start reloading it regularly, and get files
-            self.playlist = pl
+            self._file_playlist = pl
             if not self._files:
                 self._files = pl.iter_files()
             if not pl.endlist:
                 reactor.callLater(pl.reload_delay(), self._reload_playlist, pl)
-            if self._playlistd:
-                self._playlistd.callback(pl)
-                self._playlistd = None
+            if self._file_playlisted:
+                self._file_playlisted.callback(pl)
+                self._file_playlisted = None
         else:
             raise
         return pl
@@ -363,6 +370,7 @@ class GSTPlayer:
         self.playing = False
 
     def set_uri(self, filepath):
+        logging.debug("set uri %r", filepath)
         if self.gapless:
             self.player.set_property("uri", "file://" + filepath)
         else:
