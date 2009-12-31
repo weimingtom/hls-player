@@ -87,6 +87,8 @@ class M3U8(object):
                 f = self._files[current]
                 current += 1
                 yield f
+                if (f.has_key('endlist')):
+                    break
             except:
                 yield None
 
@@ -115,7 +117,7 @@ class M3U8(object):
 
         self.target_duration = None
         discontinuity = False
-        i = 1
+        i = 0
         for l in self._lines:
             if l.startswith('#EXT-X-STREAM-INF'):
                 d = to_dict(l[18:])
@@ -138,11 +140,13 @@ class M3U8(object):
                          sequence=i,
                          discontinuity=discontinuity)
                 discontinuity = False
+                i += 1
                 self._set_file(i, d)
                 if i > self._last_sequence:
                     self._last_sequence = i
-                i += 1
             elif l.startswith('#EXT-X-ENDLIST'):
+                if i > 0:
+                    self._files[i]['endlist'] = True
                 self.endlist = True
             elif len(l.strip()) != 0:
                 print l
@@ -226,15 +230,21 @@ class HLSFetcher(object):
             self._playlistd.addCallback(lambda x: self._get_next_file(last_file))
             return self._playlistd
 
+    def _handle_end(self, failure):
+        failure.trap(StopIteration)
+        print "End of media"
+        reactor.stop()
+        
     # FIXME should be properly scheduled differently
-    def _get_files(self, last_file=None):
+    def _get_files_loop(self, last_file=None):
         if last_file:
             (path, l, f) = last_file
         else:
             f = None
         d = self._get_next_file(f)
         # and loop
-        d.addCallback(self._get_files)
+        d.addCallback(self._get_files_loop)
+        d.addErrback(self._handle_end)
 
     def _playlist_updated(self, pl):
         if pl.has_programs():
@@ -286,7 +296,7 @@ class HLSFetcher(object):
     def start(self):
         self._files = None
         d = self._reload_playlist(M3U8(self.url))
-        d.addCallback(lambda _: self._get_files())
+        d.addCallback(lambda _: self._get_files_loop())
         self._new_filed = defer.Deferred()
         return self._new_filed
 
