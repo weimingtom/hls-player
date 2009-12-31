@@ -6,6 +6,7 @@ import optparse
 import os.path
 import logging
 import tempfile
+from itertools import ifilter
 
 import pygtk, gtk, gobject
 import pygst
@@ -80,15 +81,14 @@ class M3U8(object):
         if not self.has_files():
             return
 
-        current = self._first_sequence
+        current = max(self._first_sequence, self._last_sequence - 3)
         while True:
             try:
                 f = self._files[current]
+                current += 1
+                yield f
             except:
-                break
-            current += 1
-            #logging.debug('next file is %r' % f)
-            yield f
+                yield None
 
     def update(self, content):
         # update this "constructed" playlist,
@@ -180,6 +180,7 @@ class HLSFetcher(object):
 
         self._files = None # the iter of the playlist files download
         self._next_download = None # the delayed download defer, if any
+        self._playlistd = None # the defer to wait until new files are added to playlist
 
     def _get_page(self, url):
         return client.getPage(url, cookies=self._cookies)
@@ -210,8 +211,8 @@ class HLSFetcher(object):
         return d
 
     def _get_next_file(self, last_file=None):
-        try:
-            next = self._files.next()
+        next = self._files.next()
+        if next:
             delay = 0
             if last_file:
                 if not self._cached_files.has_key(last_file['sequence'] - 1) or \
@@ -220,8 +221,10 @@ class HLSFetcher(object):
                 else:
                     delay = last_file['duration']
             return deferLater(reactor, delay, self._download_file, next)
-        except StopIteration:
-            pass
+        elif not self.playlist.endlist:
+            self._playlistd = defer.Deferred()
+            self._playlistd.addCallback(lambda x: self._get_next_file(last_file))
+            return self._playlistd
 
     # FIXME should be properly scheduled differently
     def _get_files(self, last_file=None):
@@ -247,6 +250,9 @@ class HLSFetcher(object):
                 self._files = pl.iter_files()
             if not pl.endlist:
                 reactor.callLater(pl.reload_delay(), self._reload_playlist, pl)
+            if self._playlistd:
+                self._playlistd.callback(pl)
+                self._playlistd = None
         else:
             raise
         return pl
@@ -265,7 +271,17 @@ class HLSFetcher(object):
         return d
 
     def get_file(self, sequence):
-        return self._cached_files[sequence]
+        d = defer.Deferred()
+        keys = self._cached_files.keys()
+        try:
+            sequence = ifilter(lambda x: x >= sequence, keys).next()
+            d.callback(self._cached_files[sequence])
+        except:
+            d.addCallback(lambda x: self.get_file(sequence))
+            self._new_filed = d
+            keys.sort()
+            logging.debug ('missed %r in %r', (sequence, keys))
+        return d
 
     def start(self):
         self._files = None
@@ -286,7 +302,8 @@ class HLSControler:
 
     def set_player(self, player):
         self.player = player
-        self.player.player.connect("about-to-finish", self.on_player_about_to_finish)
+        if player:
+            self.player.player.connect("about-to-finish", self.on_player_about_to_finish)
 
     def _start(self, first_file):
         (path, l, f) = first_file
@@ -298,13 +315,13 @@ class HLSControler:
         d = self.fetcher.start()
         d.addCallback(self._start)
 
-    def add_file(self, path, f):
-        logging.debug("got %r, %r", path, f)
+    def _set_next_uri(self):
+        d = self.fetcher.get_file(self._player_sequence)
+        d.addCallback(self.player.set_uri)
 
     def on_player_about_to_finish(self, p):
         self._player_sequence += 1
-        l = self.fetcher.get_file(self._player_sequence)
-        reactor.callFromThread(self.player.set_uri, l)
+        reactor.callFromThread(self._set_next_uri)
 
 class GSTPlayer:
     
@@ -375,9 +392,9 @@ def main():
     parser.add_option('-g', '--gapless', action="store_true",
                       dest='gapless', default=False,
                       help='play with gapless - very buggy (default: %default)')
-    parser.add_option('-d', '--display', action="store_true",
+    parser.add_option('-d', '--no-display', action="store_false",
                       dest='display', default=True,
-                      help='display video (default: %default)')
+                      help='display no video (default: %default)')
     parser.add_option('-p', '--path', action="store", metavar="PATH",
                       dest='path', default=None,
                       help='download files to PATH')
@@ -404,8 +421,6 @@ def main():
             c.set_player(p)
             c.start()
 
-    import pdb
-#    pdb.set_trace()
     reactor.run()
 
 
