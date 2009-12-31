@@ -297,7 +297,7 @@ class HLSFetcher(object):
             d.addCallback(lambda x: self.get_file(sequence))
             self._new_filed = d
             keys.sort()
-            logging.debug ('missed %r in %r', (sequence, keys))
+            logging.debug('missed %r in %r' % (sequence, keys))
         return d
 
     def start(self):
@@ -320,7 +320,7 @@ class HLSControler:
     def set_player(self, player):
         self.player = player
         if player:
-            self.player.player.connect("about-to-finish", self.on_player_about_to_finish)
+            self.player.connect_about_to_finish(self.on_player_about_to_finish)
 
     def _start(self, first_file):
         (path, l, f) = first_file
@@ -336,13 +336,16 @@ class HLSControler:
         d = self.fetcher.get_file(self._player_sequence)
         d.addCallback(self.player.set_uri)
 
-    def on_player_about_to_finish(self, p):
+    def on_player_about_to_finish(self, p=None):
         self._player_sequence += 1
         reactor.callFromThread(self._set_next_uri)
 
 class GSTPlayer:
     
-    def __init__(self):
+    def __init__(self, with_playbin=False, gapless=False):
+        self.gapless = False
+        self.with_appsrc = not with_playbin
+
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
         self.window.set_title("Video-Player")
         self.window.set_default_size(500, 400)
@@ -352,29 +355,41 @@ class GSTPlayer:
         self.window.add(self.movie_window)
         self.window.show_all()
 
-        self.player = gst.element_factory_make("playbin2", "player")
+        if self.with_appsrc:
+            self.player = gst.Pipeline("player")
+            self.appsrc = gst.element_factory_make("appsrc", "source")
+            decodebin = gst.element_factory_make("decodebin2", "decodebin")
+            decodebin.connect("new-decoded-pad", self.on_decoded_pad)
+            self.player.add(self.appsrc, decodebin)
+            gst.element_link_many(self.appsrc, decodebin)
+        else:
+            self.player = gst.element_factory_make("playbin2", "player")
+
         bus = self.player.get_bus()
         bus.add_signal_watch()
         bus.enable_sync_message_emission()
         bus.connect("message", self.on_message)
         bus.connect("sync-message::element", self.on_sync_message)
-        self.gapless = False
-        self.playing = False
+        self._playing = False
 
     def play(self):
         self.player.set_state(gst.STATE_PLAYING)
-        self.playing = True
+        self._playing = True
 
     def stop(self):
         self.player.set_state(gst.STATE_NULL)
-        self.playing = False
+        self._playing = False
 
     def set_uri(self, filepath):
-        logging.debug("set uri %r", filepath)
-        if self.gapless:
+        logging.debug("set uri %r" % filepath)
+        if self.with_appsrc:
+            f = open(filepath)
+            self.appsrc.emit('push-buffer', gst.Buffer(f.read()))
+            self._cb()
+        elif self.gapless:
             self.player.set_property("uri", "file://" + filepath)
         else:
-            playing = self.playing
+            playing = self._playing
             self.stop()
             self.player.set_property("uri", "file://" + filepath)
             if playing:
@@ -401,6 +416,29 @@ class GSTPlayer:
             imagesink.set_property("force-aspect-ratio", True)
             imagesink.set_xwindow_id(self.movie_window.window.xid)
 
+    def on_decoded_pad(self, decodebin, pad, more_pad):
+        print pad
+        if pad.get_property("template").name_template == "video_%02d":
+            colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
+            videosink = gst.element_factory_make("xvimagesink", "videosink")
+            self.player.add(colorspace, videosink)
+            gst.element_link_many(colorspace, videosink)
+            sink_pad = colorspace.get_pad("sink")
+            pad.link(sink_pad)
+        elif pad.get_property("template").name_template == "audio_%02d":
+            audioconv = gst.element_factory_make("audioconvert", "audioconv")
+            audiosink = gst.element_factory_make("autoaudiosink", "audiosink")
+            self.player.add(audioconv, audiosink)
+            gst.element_link_many(audioconv, audiosink)
+            sink_pad = audioconv.get_pad("sink")
+            pad.link(sink_pad)
+
+    def connect_about_to_finish(self, cb):
+        if not self.with_appsrc:
+            self.player.connect("about-to-finish", cb)
+        else:
+            self._cb = cb
+
 def main():
     parser = optparse.OptionParser(usage='%prog [options] url...', version="%prog")
 
@@ -416,6 +454,9 @@ def main():
     parser.add_option('-p', '--path', action="store", metavar="PATH",
                       dest='path', default=None,
                       help='download files to PATH')
+    parser.add_option('-P', '--playbin', action="store_true",
+                      dest='playbin', default=False,
+                      help='use playbin')
     parser.add_option('-n', '--number', action="store",
                       dest='n', default=1, type="int",
                       help='number of player to start (default: %default)')
@@ -433,14 +474,13 @@ def main():
         for l in range(options.n):
             p = None
             if options.display:
-                p = GSTPlayer()
+                p = GSTPlayer(options.playbin)
                 p.set_gapless(options.gapless)
             c = HLSControler(HLSFetcher(url, options.path))
             c.set_player(p)
             c.start()
 
     reactor.run()
-
 
 if __name__ == '__main__':
     gtk.gdk.threads_init()
