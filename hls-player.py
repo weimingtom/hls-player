@@ -460,8 +460,11 @@ class GSTPlayer:
         message_name = message.structure.get_name()
         if message_name == "prepare-xwindow-id":
             imagesink = message.src
+            gtk.gdk.threads_enter()
+            gtk.gdk.display_get_default().sync()
             imagesink.set_property("force-aspect-ratio", True)
             imagesink.set_xwindow_id(self.movie_window.window.xid)
+            gtk.gdk.threads_leave()
 
     def on_decoded_pad(self, decodebin, pad, more_pad):
         print pad
