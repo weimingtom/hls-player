@@ -3,7 +3,7 @@
 import sys
 import urlparse
 import optparse
-import os.path
+import os, os.path
 import logging
 import tempfile
 from itertools import ifilter
@@ -27,9 +27,27 @@ def to_dict(l):
     return d
 
 def make_url(base_url, url):
-    if urlparse.urlsplit(url).scheme != '':
-        return url
-    return urlparse.urljoin(base_url, url)
+    if urlparse.urlsplit(url).scheme == '':
+        url = urlparse.urljoin(base_url, url)
+    if 'HLS_PLAYER_SHIFT_PORT' in os.environ.keys():
+        shift = int(os.environ['HLS_PLAYER_SHIFT_PORT'])
+        p = urlparse.urlparse(url)
+        loc = p.netloc
+        if loc.find(":") != -1:
+            loc, port = loc.split(':')
+            port = int(port) + shift
+            loc = loc + ":" + str(port)
+        elif p.scheme == "http":
+            port = 80 + shift
+            loc = loc + ":" + str(shift)
+        p = urlparse.ParseResult(scheme=p.scheme,
+                                 netloc=loc,
+                                 path=p.path, 
+                                 params=p.params,
+                                 query=p.query,
+                                 fragment=p.fragment)
+        url = urlparse.urlunparse(p)
+    return url
 
 class M3U8(object):
 
@@ -60,7 +78,7 @@ class M3U8(object):
             raise
 
         if self._update_tries == 0:
-            ld = self._files[self._last_sequence]
+            ld = self._files[self._last_sequence]['duration']
             self._reload_delay = min(self.target_duration * 3, ld)
             d = self._reload_delay
         elif self._update_tries == 1:
@@ -122,6 +140,7 @@ class M3U8(object):
 
         self.target_duration = None
         discontinuity = False
+        allow_cache = None
         i = 0
         for l in self._lines:
             if l.startswith('#EXT-X-STREAM-INF'):
@@ -133,17 +152,20 @@ class M3U8(object):
             elif l.startswith('#EXT-X-MEDIA-SEQUENCE'):
                 self.media_sequence = int(l[22:])
                 i = self.media_sequence
-            elif l.startswith('EXT-X-DISCONTINUITY'):
+            elif l.startswith('#EXT-X-DISCONTINUITY'):
                 discontinuity = True
-            elif l.startswith('EXT-X-PROGRAM-DATE-TIME'):
+            elif l.startswith('#EXT-X-PROGRAM-DATE-TIME'):
                 print l
+            elif l.startswith('#EXT-X-ALLOW-CACHE'):
+                allow_cache = l[19:]
             elif l.startswith('#EXTINF'):
                 v = l[8:].split(',')
                 d = dict(file=self._lines.next(),
                          title=v[1].strip(),
                          duration=int(v[0]),
                          sequence=i,
-                         discontinuity=discontinuity)
+                         discontinuity=discontinuity,
+                         allow_cache=allow_cache)
                 discontinuity = False
                 i += 1
                 self._set_file(i, d)
@@ -198,8 +220,13 @@ class HLSFetcher(object):
 
     def _download_page(self, url, path):
         # client.downloadPage does not support cookies!
+        def _check(x):
+            logging.debug(len(x))
+            return x
+
         d = self._get_page(url)
         f = open(path, 'w')
+        d.addCallback(_check)
         d.addCallback(lambda x: f.write(x))
         d.addBoth(lambda _: f.close())
         d.addCallback(lambda _: path)
@@ -207,10 +234,10 @@ class HLSFetcher(object):
 
     def _got_file(self, path, l, f):
         logging.debug("got " + l + " in " + path)
+        self._cached_files[f['sequence']] = path
         if self._new_filed:
             self._new_filed.callback((path, l, f))
             self._new_filed = None
-        self._cached_files[f['sequence']] = path
         return (path, l, f)
 
     def _download_file(self, f):
@@ -292,12 +319,13 @@ class HLSFetcher(object):
         keys = self._cached_files.keys()
         try:
             sequence = ifilter(lambda x: x >= sequence, keys).next()
-            d.callback(self._cached_files[sequence])
+            filename = self._cached_files[sequence]
+            d.callback(filename)
         except:
             d.addCallback(lambda x: self.get_file(sequence))
             self._new_filed = d
             keys.sort()
-            logging.debug('missed %r in %r' % (sequence, keys))
+            logging.debug('waiting for %r (available: %r)' % (sequence, keys))
         return d
 
     def start(self):
@@ -325,8 +353,9 @@ class HLSControler:
     def _start(self, first_file):
         (path, l, f) = first_file
         self._player_sequence = f['sequence']
-        self.player.set_uri(path)
-        self.player.play()
+        if self.player:
+            self.player.set_uri(path)
+            self.player.play()
 
     def start(self):
         d = self.fetcher.start()
@@ -336,7 +365,7 @@ class HLSControler:
         d = self.fetcher.get_file(self._player_sequence)
         d.addCallback(self.player.set_uri)
 
-    def on_player_about_to_finish(self, p=None):
+    def on_player_about_to_finish(self):
         self._player_sequence += 1
         reactor.callFromThread(self._set_next_uri)
 
@@ -358,10 +387,25 @@ class GSTPlayer:
         if self.with_appsrc:
             self.player = gst.Pipeline("player")
             self.appsrc = gst.element_factory_make("appsrc", "source")
-            decodebin = gst.element_factory_make("decodebin2", "decodebin")
-            decodebin.connect("new-decoded-pad", self.on_decoded_pad)
+            self.appsrc.connect("enough-data", self.on_enough_data)
+            self.appsrc.connect("need-data", self.on_need_data)
+            self.appsrc.set_property("max-bytes", 10000)
+            if 'HLS_PLAYER_DEBUG' in os.environ.keys():
+                decodebin = gst.element_factory_make("identity", "decodebin")
+            else:
+                decodebin = gst.element_factory_make("decodebin2", "decodebin")
+                decodebin.connect("new-decoded-pad", self.on_decoded_pad)
             self.player.add(self.appsrc, decodebin)
             gst.element_link_many(self.appsrc, decodebin)
+            if 'HLS_PLAYER_DEBUG' in os.environ.keys():
+                def on_new_pad(demux, pad):
+                    sink = gst.element_factory_make("fakesink", "fakesink")
+                    self.player.add(sink)
+                    gst.element_link_many(demux, sink)
+                demux = gst.element_factory_make("mpegtsdemux", "demux")
+                self.player.add(demux)
+                decodebin.connect("pad-added", on_new_pad)
+                gst.element_link_many(decodebin, demux)
         else:
             self.player = gst.element_factory_make("playbin2", "player")
 
@@ -371,6 +415,10 @@ class GSTPlayer:
         bus.connect("message", self.on_message)
         bus.connect("sync-message::element", self.on_sync_message)
         self._playing = False
+        self._need_data = False
+
+    def need_data(self):
+        return self._need_data
 
     def play(self):
         self.player.set_state(gst.STATE_PLAYING)
@@ -385,7 +433,6 @@ class GSTPlayer:
         if self.with_appsrc:
             f = open(filepath)
             self.appsrc.emit('push-buffer', gst.Buffer(f.read()))
-            self._cb()
         elif self.gapless:
             self.player.set_property("uri", "file://" + filepath)
         else:
@@ -433,9 +480,22 @@ class GSTPlayer:
             sink_pad = audioconv.get_pad("sink")
             pad.link(sink_pad)
 
+    def on_enough_data(self):
+        logging.debug("Player is full up!");
+        self._need_data = False;
+
+    def on_need_data(self, src, length):
+        logging.debug("Player is hungry! %r" % length);
+        self._need_data = True;
+        self._on_about_to_finish()
+
+    def _on_about_to_finish(self, p=None):
+        if self._cb:
+            self._cb()
+
     def connect_about_to_finish(self, cb):
         if not self.with_appsrc:
-            self.player.connect("about-to-finish", cb)
+            self.player.connect("about-to-finish", self._on_about_to_finish)
         else:
             self._cb = cb
 
