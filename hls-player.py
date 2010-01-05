@@ -458,7 +458,6 @@ class GSTPlayer:
 
     def on_message(self, bus, message):
         import gst
-        print "Message received: %r" % (message,)
         t = message.type
         if t == gst.MESSAGE_EOS:
             self.player.set_state(gst.STATE_NULL)
@@ -467,8 +466,9 @@ class GSTPlayer:
             err, debug = message.parse_error()
             print "Error: %s" % err, debug
         elif t == gst.MESSAGE_STATE_CHANGED:
-            old, new, pending == message.parse_state_changed()
-            print "State changed from %r to %r pending %r" % (old, new, pending)
+            if message.src == self.player:
+                o, n, p = message.parse_state_changed()
+                print "State changed from %r to %r pending %r" % (o, n, p)
 
     def on_sync_message(self, bus, message):
         if message.structure is None:
@@ -486,18 +486,27 @@ class GSTPlayer:
         import gst
         c = pad.get_caps().to_string()
         if "video" in c:
+            q1 = gst.element_factory_make("queue", "vqueue")
+            q1.props.max_size_buffers = 0
+            q1.props.max_size_time = 0
+            q1.props.max_size_bytes = 4294967295
             colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
             videosink = gst.element_factory_make("xvimagesink", "videosink")
-            self.player.add(colorspace, videosink)
-            gst.element_link_many(colorspace, videosink)
-            sink_pad = colorspace.get_pad("sink")
+            self.player.add(q1, colorspace, videosink)
+            gst.element_link_many(q1, colorspace, videosink)
+            sink_pad = q1.get_pad("sink")
             pad.link(sink_pad)
         elif "audio" in c:
+            q2 = gst.element_factory_make("queue", "aqueue")
+            q2.props.max_size_buffers = 0
+            q2.props.max_size_time = 0
+            q2.props.max_size_bytes = 4294967295
+
             audioconv = gst.element_factory_make("audioconvert", "audioconv")
             audiosink = gst.element_factory_make("autoaudiosink", "audiosink")
-            self.player.add(audioconv, audiosink)
-            gst.element_link_many(audioconv, audiosink)
-            sink_pad = audioconv.get_pad("sink")
+            self.player.add(q2, audioconv, audiosink)
+            gst.element_link_many(q2, audioconv, audiosink)
+            sink_pad = q2.get_pad("sink")
             pad.link(sink_pad)
 
     def on_enough_data(self):
