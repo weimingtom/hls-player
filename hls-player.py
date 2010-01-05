@@ -9,9 +9,6 @@ import tempfile
 from itertools import ifilter
 
 import pygtk, gtk, gobject
-import pygst
-pygst.require("0.10")
-import gst
 
 from twisted.internet import reactor
 from twisted.web import client
@@ -372,6 +369,9 @@ class HLSControler:
 class GSTPlayer:
     
     def __init__(self, with_playbin=False, gapless=False):
+        import pygst
+        import gst
+
         self.gapless = False
         self.with_appsrc = not with_playbin
 
@@ -416,19 +416,23 @@ class GSTPlayer:
         bus.connect("sync-message::element", self.on_sync_message)
         self._playing = False
         self._need_data = False
+        self._cb = None
 
     def need_data(self):
         return self._need_data
 
     def play(self):
+        import gst
         self.player.set_state(gst.STATE_PLAYING)
         self._playing = True
 
     def stop(self):
+        import gst
         self.player.set_state(gst.STATE_NULL)
         self._playing = False
 
     def set_uri(self, filepath):
+        import gst
         logging.debug("set uri %r" % filepath)
         if self.with_appsrc:
             f = open(filepath)
@@ -467,6 +471,7 @@ class GSTPlayer:
             gtk.gdk.threads_leave()
 
     def on_decoded_pad(self, decodebin, pad, more_pad):
+        import gst
         print pad
         if pad.get_property("template").name_template == "video_%02d":
             colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
