@@ -9,11 +9,13 @@ import tempfile
 from itertools import ifilter
 
 import pygtk, gtk, gobject
-
-from twisted.internet import reactor
-from twisted.web import client
+gobject.threads_init()
 from twisted.internet import gtk2reactor, defer
 from twisted.internet.task import deferLater
+
+gtk2reactor.install()
+from twisted.internet import reactor
+from twisted.web import client
 
 if sys.version_info < (2, 4):
     raise ImportError("Cannot run with Python version < 2.4")
@@ -376,7 +378,7 @@ class GSTPlayer:
     def __init__(self, with_playbin=False, gapless=False):
         import pygst
         import gst
-
+        print "BLAH"
         self.gapless = False
         self.with_appsrc = not with_playbin
 
@@ -455,6 +457,8 @@ class GSTPlayer:
         self.gapless = is_gapless
 
     def on_message(self, bus, message):
+        import gst
+        print "Message received: %r" % (message,)
         t = message.type
         if t == gst.MESSAGE_EOS:
             self.player.set_state(gst.STATE_NULL)
@@ -462,6 +466,9 @@ class GSTPlayer:
             self.player.set_state(gst.STATE_NULL)
             err, debug = message.parse_error()
             print "Error: %s" % err, debug
+        elif t == gst.MESSAGE_STATE_CHANGED:
+            old, new, pending == message.parse_state_changed()
+            print "State changed from %r to %r pending %r" % (old, new, pending)
 
     def on_sync_message(self, bus, message):
         if message.structure is None:
@@ -477,15 +484,15 @@ class GSTPlayer:
 
     def on_decoded_pad(self, decodebin, pad, more_pad):
         import gst
-        print pad
-        if pad.get_property("template").name_template == "video_%02d":
+        c = pad.get_caps().to_string()
+        if "video" in c:
             colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
             videosink = gst.element_factory_make("xvimagesink", "videosink")
             self.player.add(colorspace, videosink)
             gst.element_link_many(colorspace, videosink)
             sink_pad = colorspace.get_pad("sink")
             pad.link(sink_pad)
-        elif pad.get_property("template").name_template == "audio_%02d":
+        elif "audio" in c:
             audioconv = gst.element_factory_make("audioconvert", "audioconv")
             audiosink = gst.element_factory_make("autoaudiosink", "audiosink")
             self.player.add(audioconv, audiosink)
