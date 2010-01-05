@@ -58,7 +58,10 @@ class M3U8(object):
         self._reload_delay = None # the initial reload delay
         self._update_tries = None # the number consecutive reload tries
         self._last_content = None
-        self.endlist = False # wether the list ended and should not be refreshed
+        self._endlist = False # wether the list ended and should not be refreshed
+
+    def endlist(self):
+        return self._endlist
 
     def has_programs(self):
         return len(self._programs) != 0
@@ -71,7 +74,7 @@ class M3U8(object):
 
     def reload_delay(self):
         # return the time between request updates, in seconds
-        if self.endlist or not self._last_sequence:
+        if self._endlist or not self._last_sequence:
             raise
 
         if self._update_tries == 0:
@@ -96,7 +99,7 @@ class M3U8(object):
         if not self.has_files():
             return
 
-        if not self.endlist:
+        if not self._endlist:
             current = max(self._first_sequence, self._last_sequence - 3)
         else:
             # tread differently on-demand playlists?
@@ -171,7 +174,7 @@ class M3U8(object):
             elif l.startswith('#EXT-X-ENDLIST'):
                 if i > 0:
                     self._files[i]['endlist'] = True
-                self.endlist = True
+                self._endlist = True
             elif len(l.strip()) != 0:
                 print l
 
@@ -253,10 +256,12 @@ class HLSFetcher(object):
                 if not self._cached_files.has_key(last_file['sequence'] - 1) or \
                         not self._cached_files.has_key(last_file['sequence'] - 2):
                     delay = 0
+                elif self._file_playlist.endlist():
+                    delay = 1
                 else:
                     delay = last_file['duration']
             return deferLater(reactor, delay, self._download_file, next)
-        elif not self._file_playlist.endlist:
+        elif not self._file_playlist.endlist():
             self._file_playlisted = defer.Deferred()
             self._file_playlisted.addCallback(lambda x: self._get_next_file(last_file))
             return self._file_playlisted
@@ -289,7 +294,7 @@ class HLSFetcher(object):
             self._file_playlist = pl
             if not self._files:
                 self._files = pl.iter_files()
-            if not pl.endlist:
+            if not pl.endlist():
                 reactor.callLater(pl.reload_delay(), self._reload_playlist, pl)
             if self._file_playlisted:
                 self._file_playlisted.callback(pl)
@@ -504,8 +509,7 @@ class GSTPlayer:
     def connect_about_to_finish(self, cb):
         if not self.with_appsrc:
             self.player.connect("about-to-finish", self._on_about_to_finish)
-        else:
-            self._cb = cb
+        self._cb = cb
 
 def main():
     parser = optparse.OptionParser(usage='%prog [options] url...', version="%prog")
