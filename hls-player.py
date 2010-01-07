@@ -511,7 +511,7 @@ class GSTPlayer:
             q1.connect("overrun", self.on_overrun)
             colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
             videosink = gst.element_factory_make("xvimagesink", "videosink")
-            self.player.add(q1, colorspace, videoscale, videosink)
+            self.player.add(q1, colorspace, videosink)
             gst.element_link_many(q1, colorspace, videosink)
             for e in [q1, colorspace, videosink]:
                 e.set_state(gst.STATE_PLAYING)
