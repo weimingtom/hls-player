@@ -119,7 +119,7 @@ class M3U8(object):
         if not self._endlist:
             current = max(self._first_sequence, self._last_sequence - 3)
         else:
-            # tread differently on-demand playlists?
+            # treat differently on-demand playlists?
             current = self._first_sequence
 
         while True:
@@ -312,7 +312,6 @@ class HLSFetcher(object):
         print "End of media"
         reactor.stop()
 
-    # FIXME should be properly scheduled differently
     def _get_files_loop(self, last_file=None):
         if last_file:
             (path, l, f) = last_file
@@ -415,12 +414,9 @@ class HLSControler:
 
 class GSTPlayer:
 
-    def __init__(self, with_playbin=False, gapless=False):
+    def __init__(self):
         import pygst
         import gst
-        print "BLAH"
-        self.gapless = False
-        self.with_appsrc = not with_playbin
 
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
         self.window.set_title("Video-Player")
@@ -431,30 +427,15 @@ class GSTPlayer:
         self.window.add(self.movie_window)
         self.window.show_all()
 
-        if self.with_appsrc:
-            self.player = gst.Pipeline("player")
-            self.appsrc = gst.element_factory_make("appsrc", "source")
-            self.appsrc.connect("enough-data", self.on_enough_data)
-            self.appsrc.connect("need-data", self.on_need_data)
-            self.appsrc.set_property("max-bytes", 10000)
-            if 'HLS_PLAYER_DEBUG' in os.environ.keys():
-                decodebin = gst.element_factory_make("identity", "decodebin")
-            else:
-                decodebin = gst.element_factory_make("decodebin2", "decodebin")
-                decodebin.connect("new-decoded-pad", self.on_decoded_pad)
-            self.player.add(self.appsrc, decodebin)
-            gst.element_link_many(self.appsrc, decodebin)
-            if 'HLS_PLAYER_DEBUG' in os.environ.keys():
-                def on_new_pad(demux, pad):
-                    sink = gst.element_factory_make("fakesink", "fakesink")
-                    self.player.add(sink)
-                    gst.element_link_many(demux, sink)
-                demux = gst.element_factory_make("mpegtsdemux", "demux")
-                self.player.add(demux)
-                decodebin.connect("pad-added", on_new_pad)
-                gst.element_link_many(decodebin, demux)
-        else:
-            self.player = gst.element_factory_make("playbin2", "player")
+        self.player = gst.Pipeline("player")
+        self.appsrc = gst.element_factory_make("appsrc", "source")
+        self.appsrc.connect("enough-data", self.on_enough_data)
+        self.appsrc.connect("need-data", self.on_need_data)
+        self.appsrc.set_property("max-bytes", 10000)
+        decodebin = gst.element_factory_make("decodebin2", "decodebin")
+        decodebin.connect("new-decoded-pad", self.on_decoded_pad)
+        self.player.add(self.appsrc, decodebin)
+        gst.element_link_many(self.appsrc, decodebin)
 
         bus = self.player.get_bus()
         bus.add_signal_watch()
@@ -481,20 +462,8 @@ class GSTPlayer:
     def set_uri(self, filepath):
         import gst
         logging.debug("set uri %r" % filepath)
-        if self.with_appsrc:
-            f = open(filepath)
-            self.appsrc.emit('push-buffer', gst.Buffer(f.read()))
-        elif self.gapless:
-            self.player.set_property("uri", "file://" + filepath)
-        else:
-            playing = self._playing
-            self.stop()
-            self.player.set_property("uri", "file://" + filepath)
-            if playing:
-                self.play()
-
-    def set_gapless(self, is_gapless):
-        self.gapless = is_gapless
+        f = open(filepath)
+        self.appsrc.emit('push-buffer', gst.Buffer(f.read()))
 
     def on_message(self, bus, message):
         import gst
@@ -584,18 +553,12 @@ def main():
     parser.add_option('-v', '--verbose', action="store_true",
                       dest='verbose', default=False,
                       help='print some debugging (default: %default)')
-    parser.add_option('-g', '--gapless', action="store_true",
-                      dest='gapless', default=False,
-                      help='play with gapless - very buggy (default: %default)')
     parser.add_option('-D', '--no-display', action="store_true",
                       dest='nodisplay', default=False,
                       help='display no video (default: %default)')
     parser.add_option('-p', '--path', action="store", metavar="PATH",
                       dest='path', default=None,
                       help='download files to PATH')
-    parser.add_option('-P', '--playbin', action="store_true",
-                      dest='playbin', default=False,
-                      help='use playbin')
     parser.add_option('-n', '--number', action="store",
                       dest='n', default=1, type="int",
                       help='number of player to start (default: %default)')
@@ -615,8 +578,7 @@ def main():
                 url = "http://" + url
             p = None
             if not options.nodisplay:
-                p = GSTPlayer(options.playbin)
-                p.set_gapless(options.gapless)
+                p = GSTPlayer()
             c = HLSControler(HLSFetcher(url, options.path))
             c.set_player(p)
             c.start()
