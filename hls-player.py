@@ -507,8 +507,6 @@ class GSTPlayer:
             q1.props.max_size_buffers = 0
             q1.props.max_size_time = 0
             #q1.props.max_size_bytes = 0
-            q1.connect("underrun", self.on_underrun)
-            q1.connect("overrun", self.on_overrun)
             colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
             videosink = gst.element_factory_make("xvimagesink", "videosink")
             self.player.add(q1, colorspace, videosink)
@@ -522,8 +520,6 @@ class GSTPlayer:
             q2.props.max_size_buffers = 0
             q2.props.max_size_time = 0
             #q2.props.max_size_bytes = 0
-            q2.connect("underrun", self.on_underrun)
-            q2.connect("overrun", self.on_overrun)
             audioconv = gst.element_factory_make("audioconvert", "audioconv")
             audioresample =  gst.element_factory_make("audioresample", "ar")
             audiosink = gst.element_factory_make("autoaudiosink", "audiosink")
