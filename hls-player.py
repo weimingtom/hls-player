@@ -471,6 +471,7 @@ class GSTPlayer:
                 print "State changed from %r to %r pending %r" % (o, n, p)
 
     def on_sync_message(self, bus, message):
+        print "Message: %r" % (message,)
         if message.structure is None:
             return
         message_name = message.structure.get_name()
@@ -489,25 +490,36 @@ class GSTPlayer:
             q1 = gst.element_factory_make("queue", "vqueue")
             q1.props.max_size_buffers = 0
             q1.props.max_size_time = 0
-            q1.props.max_size_bytes = 4294967295
+            q1.props.max_size_bytes = 0
+            q1.connect("underrun", self.on_underrun)
+            q1.connect("overrun", self.on_overrun)
             colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
+            videoscale = gst.element_factory_make("videoscale", "scaler")
             videosink = gst.element_factory_make("xvimagesink", "videosink")
-            self.player.add(q1, colorspace, videosink)
-            gst.element_link_many(q1, colorspace, videosink)
+            self.player.add(q1, colorspace, videoscale, videosink)
+            gst.element_link_many(q1, colorspace, videoscale, videosink)
             sink_pad = q1.get_pad("sink")
             pad.link(sink_pad)
         elif "audio" in c:
             q2 = gst.element_factory_make("queue", "aqueue")
             q2.props.max_size_buffers = 0
             q2.props.max_size_time = 0
-            q2.props.max_size_bytes = 4294967295
-
+            q2.props.max_size_bytes = 0
+            q2.connect("underrun", self.on_underrun)
+            q2.connect("overrun", self.on_overrun)
             audioconv = gst.element_factory_make("audioconvert", "audioconv")
+            audioresample =  gst.element_factory_make("audioresample", "ar")
             audiosink = gst.element_factory_make("autoaudiosink", "audiosink")
-            self.player.add(q2, audioconv, audiosink)
-            gst.element_link_many(q2, audioconv, audiosink)
+            self.player.add(q2, audioconv, audioresample, audiosink)
+            gst.element_link_many(q2, audioconv, audioresample, audiosink)
             sink_pad = q2.get_pad("sink")
             pad.link(sink_pad)
+
+    def on_overrun(self, element):
+        print "overrun on %r" % (element,)
+
+    def on_underrun(self, element):
+        print "underrun on %r" % (element,)
 
     def on_enough_data(self):
         logging.debug("Player is full up!");
