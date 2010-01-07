@@ -6,6 +6,7 @@ import optparse
 import os, os.path
 import logging
 import tempfile
+import codecs
 from itertools import ifilter
 
 import pygtk, gtk, gobject
@@ -127,7 +128,8 @@ class M3U8(object):
         self._update_tries = 0
         self.last_content = content
 
-        def get_line(c):
+        def get_lines_iter(c):
+            c = c.decode("utf-8-sig")
             for l in c.split('\n'):
                 if l.startswith('#EXT'):
                     yield l
@@ -136,8 +138,10 @@ class M3U8(object):
                 else:
                     yield l
                 
-        self._lines = get_line(content)
-        if not self._lines.next().startswith('#EXTM3U'):
+        self._lines = get_lines_iter(content)
+        first_line = self._lines.next()
+        if not first_line.startswith('#EXTM3U'):
+            logging.debug('Invalid first line: %r' % first_line)
             raise
 
         self.target_duration = None
@@ -162,7 +166,7 @@ class M3U8(object):
                 allow_cache = l[19:]
             elif l.startswith('#EXTINF'):
                 v = l[8:].split(',')
-                d = dict(file=self._lines.next(),
+                d = dict(file=self._lines.next().strip(),
                          title=v[1].strip(),
                          duration=int(v[0]),
                          sequence=i,
@@ -181,6 +185,7 @@ class M3U8(object):
                 print l
 
         if not self.has_programs() and not self.target_duration:
+            logging.debug("Invalid HLS stream: no programs & no duration")
             raise
 
         return True
@@ -218,6 +223,7 @@ class HLSFetcher(object):
         self._file_playlisted = None # the defer to wait until new files are added to playlist
 
     def _get_page(self, url):
+        url = url.encode("utf-8")
         return client.getPage(url, cookies=self._cookies)
 
     def _download_page(self, url, path):
@@ -548,8 +554,8 @@ def main():
     parser.add_option('-g', '--gapless', action="store_true",
                       dest='gapless', default=False,
                       help='play with gapless - very buggy (default: %default)')
-    parser.add_option('-d', '--no-display', action="store_false",
-                      dest='display', default=True,
+    parser.add_option('-D', '--no-display', action="store_false",
+                      dest='nodisplay', default=False,
                       help='display no video (default: %default)')
     parser.add_option('-p', '--path', action="store", metavar="PATH",
                       dest='path', default=None,
@@ -572,8 +578,10 @@ def main():
 
     for url in args:
         for l in range(options.n):
+            if urlparse.urlsplit(url).scheme == '':
+                url = "http://" + url
             p = None
-            if options.display:
+            if not options.nodisplay:
                 p = GSTPlayer(options.playbin)
                 p.set_gapless(options.gapless)
             c = HLSControler(HLSFetcher(url, options.path))
