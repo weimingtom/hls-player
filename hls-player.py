@@ -543,8 +543,6 @@ class GSTPlayer:
             self._cb()
 
     def connect_about_to_finish(self, cb):
-        if not self.with_appsrc:
-            self.player.connect("about-to-finish", self._on_about_to_finish)
         self._cb = cb
 
 def main():
