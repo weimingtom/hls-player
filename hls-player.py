@@ -250,6 +250,15 @@ class HLSFetcher(object):
         d.addCallback(lambda _: path)
         return d
 
+    def delete(self, f):
+        keys = self._cached_files.keys()
+        for i in ifilter(f, keys):
+            filename = self._cached_files[i]
+            logging.debug("Removing %r" % filename)
+            os.remove(filename)
+            del self._cached_files[i]
+        self._cached_files
+
     def _got_file(self, path, l, f):
         logging.debug("got " + l + " in " + path)
         self._cached_files[f['sequence']] = path
@@ -382,11 +391,13 @@ class HLSControler:
         d.addCallback(self._start)
 
     def _set_next_uri(self):
+        # keep only the past three segments
+        self.fetcher.delete(lambda x: x <= self._player_sequence - 3)
+        self._player_sequence += 1
         d = self.fetcher.get_file(self._player_sequence)
         d.addCallback(self.player.set_uri)
 
     def on_player_about_to_finish(self):
-        self._player_sequence += 1
         reactor.callFromThread(self._set_next_uri)
 
 class GSTPlayer:
