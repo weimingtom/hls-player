@@ -441,29 +441,34 @@ class HLSControler:
 
 class GSTPlayer:
 
-    def __init__(self):
+    def __init__(self, display=True):
         import pygst
         import gst
-
-        self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
-        self.window.set_title("Video-Player")
-        self.window.set_default_size(500, 400)
-        self.window.set_type_hint(gtk.gdk.WINDOW_TYPE_HINT_DIALOG)
-        self.window.connect('delete-event', lambda _: reactor.stop())
-        self.movie_window = gtk.DrawingArea()
-        self.window.add(self.movie_window)
-        self.window.show_all()
+        if display:
+            self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
+            self.window.set_title("Video-Player")
+            self.window.set_default_size(500, 400)
+            self.window.set_type_hint(gtk.gdk.WINDOW_TYPE_HINT_DIALOG)
+            self.window.connect('delete-event', lambda _: reactor.stop())
+            self.movie_window = gtk.DrawingArea()
+            self.window.add(self.movie_window)
+            self.window.show_all()
 
         self.player = gst.Pipeline("player")
         self.appsrc = gst.element_factory_make("appsrc", "source")
         self.appsrc.connect("enough-data", self.on_enough_data)
         self.appsrc.connect("need-data", self.on_need_data)
         self.appsrc.set_property("max-bytes", 10000)
-        decodebin = gst.element_factory_make("decodebin2", "decodebin")
-        decodebin.connect("new-decoded-pad", self.on_decoded_pad)
-        self.player.add(self.appsrc, decodebin)
-        gst.element_link_many(self.appsrc, decodebin)
-
+        if display:
+            decodebin = gst.element_factory_make("decodebin2", "decodebin")
+            decodebin.connect("new-decoded-pad", self.on_decoded_pad)
+            self.player.add(self.appsrc, decodebin)
+            gst.element_link_many(self.appsrc, decodebin)
+        else:
+            sink = gst.element_factory_make("filesink", "filesink")
+            sink.set_property("location", "/tmp/hls-player.ts")
+            self.player.add(self.appsrc, sink)
+            gst.element_link_many(self.appsrc, sink)
         bus = self.player.get_bus()
         bus.add_signal_watch()
         bus.enable_sync_message_emission()
@@ -605,9 +610,7 @@ def main():
         for l in range(options.n):
             if urlparse.urlsplit(url).scheme == '':
                 url = "http://" + url
-            p = None
-            if not options.nodisplay:
-                p = GSTPlayer()
+            p = GSTPlayer(display = not options.nodisplay)
             c = HLSControler(HLSFetcher(url, options.path, options.keep))
             c.set_player(p)
             c.start()
