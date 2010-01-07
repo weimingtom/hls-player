@@ -37,11 +37,6 @@ if sys.version_info < (2, 4):
     raise ImportError("Cannot run with Python version < 2.4")
 
 
-def to_dict(l):
-    i = (f.split('=') for f in l.split(','))
-    d = dict((k.strip(), v.strip()) for (k,v) in i)
-    return d
-
 def make_url(base_url, url):
     if urlparse.urlsplit(url).scheme == '':
         url = urlparse.urljoin(base_url, url)
@@ -169,6 +164,10 @@ class M3U8(object):
         new_files = []
         for l in self._lines:
             if l.startswith('#EXT-X-STREAM-INF'):
+                def to_dict(l):
+                    i = (f.split('=') for f in l.split(','))
+                    d = dict((k.strip(), v.strip()) for (k,v) in i)
+                    return d
                 d = to_dict(l[18:])
                 d['uri'] = self._lines.next()
                 self._add_playlist(d)
@@ -611,13 +610,15 @@ def main():
 
     for url in args:
         for l in range(options.n):
+
             if urlparse.urlsplit(url).scheme == '':
                 url = "http://" + url
-            p = None
+
+            c = HLSControler(HLSFetcher(url, options.path, options.keep))
             if not options.nodisplay:
                 p = GSTPlayer(display = not options.save)
-            c = HLSControler(HLSFetcher(url, options.path, options.keep))
-            c.set_player(p)
+                c.set_player(p)
+
             c.start()
 
     reactor.run()
