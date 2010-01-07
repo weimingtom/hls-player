@@ -32,8 +32,10 @@ gtk2reactor.install()
 from twisted.internet import reactor
 from twisted.web import client
 
+
 if sys.version_info < (2, 4):
     raise ImportError("Cannot run with Python version < 2.4")
+
 
 def to_dict(l):
     i = (f.split('=') for f in l.split(','))
@@ -62,6 +64,7 @@ def make_url(base_url, url):
                                  fragment=p.fragment)
         url = urlparse.urlunparse(p)
     return url
+
 
 class M3U8(object):
 
@@ -227,6 +230,7 @@ class M3U8(object):
     def __repr__(self):
         return "M3U8 %r %r" % (self._programs, self._files)
 
+
 class HLSFetcher(object):
 
     def __init__(self, url, path=None, program=1, bitrate=200000):
@@ -264,7 +268,7 @@ class HLSFetcher(object):
         d.addCallback(lambda _: path)
         return d
 
-    def delete(self, f):
+    def delete_cache(self, f):
         keys = self._cached_files.keys()
         for i in ifilter(f, keys):
             filename = self._cached_files[i]
@@ -346,12 +350,19 @@ class HLSFetcher(object):
     def _got_playlist_content(self, content, pl):
         if not pl.update(content):
             # if the playlist cannot be loaded, start a reload timer
-            return deferLater(reactor, pl.reload_delay(), self._reload_playlist, pl)
+            d = deferLater(reactor, pl.reload_delay(), self._fetch_playlist, pl)
+            d.addCallback(self._got_playlist_content, pl)
+            return d
         return pl
 
-    def _reload_playlist(self, pl):
+    def _fetch_playlist(self, pl):
         logging.debug('fetching %r' % pl.url)
-        d = self._get_page(pl.url).addCallback(self._got_playlist_content, pl)
+        d = self._get_page(pl.url)
+        return d
+
+    def _reload_playlist(self, pl):
+        d = self._fetch_playlist(pl)
+        d.addCallback(self._got_playlist_content, pl)
         d.addCallback(self._playlist_updated)
         return d
 
@@ -379,6 +390,7 @@ class HLSFetcher(object):
     def stop(self):
         pass
 
+
 class HLSControler:
 
     def __init__(self, fetcher=None):
@@ -404,13 +416,14 @@ class HLSControler:
 
     def _set_next_uri(self):
         # keep only the past three segments
-        self.fetcher.delete(lambda x: x <= self._player_sequence - 3)
+        self.fetcher.delete_cache(lambda x: x <= self._player_sequence - 3)
         self._player_sequence += 1
         d = self.fetcher.get_file(self._player_sequence)
         d.addCallback(self.player.set_uri)
 
     def on_player_about_to_finish(self):
         reactor.callFromThread(self._set_next_uri)
+
 
 class GSTPlayer:
 
@@ -545,6 +558,7 @@ class GSTPlayer:
     def connect_about_to_finish(self, cb):
         self._cb = cb
 
+
 def main():
     parser = optparse.OptionParser(usage='%prog [options] url...', version="%prog")
 
@@ -582,6 +596,7 @@ def main():
             c.start()
 
     reactor.run()
+
 
 if __name__ == '__main__':
     gtk.gdk.threads_init()
