@@ -121,12 +121,13 @@ class M3U8(object):
     def update(self, content):
         # update this "constructed" playlist,
         # return wether it has actually been updated
-        if self._last_content and content == self.last_content:
+        if self._last_content and content == self._last_content:
+            logging.debug("Content didn't change")
             self._update_tries += 1
             return False
 
         self._update_tries = 0
-        self.last_content = content
+        self._last_content = content
 
         def get_lines_iter(c):
             c = c.decode("utf-8-sig")
@@ -148,6 +149,7 @@ class M3U8(object):
         discontinuity = False
         allow_cache = None
         i = 0
+        new_files = []
         for l in self._lines:
             if l.startswith('#EXT-X-STREAM-INF'):
                 d = to_dict(l[18:])
@@ -174,9 +176,11 @@ class M3U8(object):
                          allow_cache=allow_cache)
                 discontinuity = False
                 i += 1
-                self._set_file(i, d)
+                new = self._set_file(i, d)
                 if i > self._last_sequence:
                     self._last_sequence = i
+                if new:
+                    new_files.append(d)
             elif l.startswith('#EXT-X-ENDLIST'):
                 if i > 0:
                     self._files[i]['endlist'] = True
@@ -187,6 +191,8 @@ class M3U8(object):
         if not self.has_programs() and not self.target_duration:
             logging.debug("Invalid HLS stream: no programs & no duration")
             raise
+        if len(new_files):
+            logging.debug("got new files in playlist: %r", new_files)
 
         return True
 
@@ -194,11 +200,15 @@ class M3U8(object):
         self._programs.append(d)
 
     def _set_file(self, sequence, d):
+        new = False
+        if not self._files.has_key(sequence):
+            new = True
         if not self._first_sequence:
             self._first_sequence = sequence
         elif sequence < self._first_sequence:
             self._first_sequence = sequence
         self._files[sequence] = d
+        return new
 
     def __repr__(self):
         return "M3U8 %r %r" % (self._programs, self._files)
