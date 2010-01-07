@@ -332,9 +332,8 @@ class HLSFetcher(object):
 
     def _got_playlist_content(self, content, pl):
         if not pl.update(content):
-            # if the playlist cannout be loaded, start a reload timer
-            d = reactor.callLater(pl.reload_delay(), self._reload_playlist, pl)
-            return d
+            # if the playlist cannot be loaded, start a reload timer
+            return deferLater(reactor, pl.reload_delay(), self._reload_playlist, pl)
         return pl
 
     def _reload_playlist(self, pl):
