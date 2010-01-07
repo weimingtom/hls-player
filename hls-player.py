@@ -42,7 +42,7 @@ def make_url(base_url, url):
             loc = loc + ":" + str(shift)
         p = urlparse.ParseResult(scheme=p.scheme,
                                  netloc=loc,
-                                 path=p.path, 
+                                 path=p.path,
                                  params=p.params,
                                  query=p.query,
                                  fragment=p.fragment)
@@ -137,7 +137,7 @@ class M3U8(object):
                     pass
                 else:
                     yield l
-                
+
         self._lines = get_lines_iter(content)
         first_line = self._lines.next()
         if not first_line.startswith('#EXTM3U'):
@@ -278,7 +278,7 @@ class HLSFetcher(object):
         failure.trap(StopIteration)
         print "End of media"
         reactor.stop()
-        
+
     # FIXME should be properly scheduled differently
     def _get_files_loop(self, last_file=None):
         if last_file:
@@ -380,7 +380,7 @@ class HLSControler:
         reactor.callFromThread(self._set_next_uri)
 
 class GSTPlayer:
-    
+
     def __init__(self, with_playbin=False, gapless=False):
         import pygst
         import gst
@@ -500,10 +500,11 @@ class GSTPlayer:
             q1.connect("underrun", self.on_underrun)
             q1.connect("overrun", self.on_overrun)
             colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
-            videoscale = gst.element_factory_make("videoscale", "scaler")
             videosink = gst.element_factory_make("xvimagesink", "videosink")
             self.player.add(q1, colorspace, videoscale, videosink)
-            gst.element_link_many(q1, colorspace, videoscale, videosink)
+            gst.element_link_many(q1, colorspace, videosink)
+            for e in [q1, colorspace, videosink]:
+                e.set_state(gst.STATE_PLAYING)
             sink_pad = q1.get_pad("sink")
             pad.link(sink_pad)
         elif "audio" in c:
@@ -518,6 +519,8 @@ class GSTPlayer:
             audiosink = gst.element_factory_make("autoaudiosink", "audiosink")
             self.player.add(q2, audioconv, audioresample, audiosink)
             gst.element_link_many(q2, audioconv, audioresample, audiosink)
+            for e in [q2, audioconv, audioresample, audiosink]:
+                e.set_state(gst.STATE_PLAYING)
             sink_pad = q2.get_pad("sink")
             pad.link(sink_pad)
 
@@ -572,7 +575,7 @@ def main():
     if len(args) == 0:
         parser.print_help()
         sys.exit(1)
-    
+
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG)
 
