@@ -587,6 +587,9 @@ def main():
     parser.add_option('-D', '--no-display', action="store_true",
                       dest='nodisplay', default=False,
                       help='display no video (default: %default)')
+    parser.add_option('-s', '--save', action="store_true",
+                      dest='save', default=False,
+                      help='save instead of watch (saves to /tmp/hls-player.ts)')
     parser.add_option('-k', '--keep', action="store",
                       dest='keep', default=3, type="int",
                       help='number of segments ot keep (default: %default, -1: unlimited)')
@@ -610,7 +613,9 @@ def main():
         for l in range(options.n):
             if urlparse.urlsplit(url).scheme == '':
                 url = "http://" + url
-            p = GSTPlayer(display = not options.nodisplay)
+            p = None
+            if not options.nodisplay:
+                p = GSTPlayer(display = not options.save)
             c = HLSControler(HLSFetcher(url, options.path, options.keep))
             c.set_player(p)
             c.start()
