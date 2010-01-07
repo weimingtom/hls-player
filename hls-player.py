@@ -252,8 +252,13 @@ class HLSFetcher(object):
         self._file_playlisted = None # the defer to wait until new files are added to playlist
 
     def _get_page(self, url):
+        def got_page(content):
+            logging.debug("Cookies: %r" % self._cookies)
+            return content
         url = url.encode("utf-8")
-        return client.getPage(url, cookies=self._cookies)
+        d = client.getPage(url, cookies=self._cookies)
+        d.addCallback(got_page)
+        return d
 
     def _download_page(self, url, path):
         # client.downloadPage does not support cookies!
