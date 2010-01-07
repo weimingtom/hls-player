@@ -106,7 +106,7 @@ class M3U8(object):
             d = self._reload_delay * 3.0
 
         logging.debug('Reload delay is %r' % d)
-        return d
+        return int(d)
 
     def has_files(self):
         return len(self._files) != 0
