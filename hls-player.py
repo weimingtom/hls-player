@@ -554,7 +554,7 @@ def main():
     parser.add_option('-g', '--gapless', action="store_true",
                       dest='gapless', default=False,
                       help='play with gapless - very buggy (default: %default)')
-    parser.add_option('-D', '--no-display', action="store_false",
+    parser.add_option('-D', '--no-display', action="store_true",
                       dest='nodisplay', default=False,
                       help='display no video (default: %default)')
     parser.add_option('-p', '--path', action="store", metavar="PATH",
