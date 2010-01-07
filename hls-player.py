@@ -233,13 +233,14 @@ class M3U8(object):
 
 class HLSFetcher(object):
 
-    def __init__(self, url, path=None, program=1, bitrate=200000):
+    def __init__(self, url, path=None, n_segments_keep=-1, program=1, bitrate=200000):
         self.url = url
         self.path = path
         if not self.path:
             self.path = tempfile.mkdtemp()
         self.program = program
         self.bitrate = bitrate
+        self.n_segments_keep = n_segments_keep
 
         self._program_playlist = None
         self._file_playlist = None
@@ -280,6 +281,8 @@ class HLSFetcher(object):
     def _got_file(self, path, l, f):
         logging.debug("got " + l + " in " + path)
         self._cached_files[f['sequence']] = path
+        if self.n_segments_keep != -1:
+            self.delete_cache(lambda x: x <= f['sequence'] - self.n_segments_keep)
         if self._new_filed:
             self._new_filed.callback((path, l, f))
             self._new_filed = None
@@ -396,12 +399,16 @@ class HLSControler:
     def __init__(self, fetcher=None):
         self.fetcher = fetcher
         self.player = None
+
         self._player_sequence = None
+        self._n_segments_keep = None
 
     def set_player(self, player):
         self.player = player
         if player:
             self.player.connect_about_to_finish(self.on_player_about_to_finish)
+            self._n_segments_keep = self.fetcher.n_segments_keep
+            self.fetcher.n_segments_keep = -1
 
     def _start(self, first_file):
         (path, l, f) = first_file
@@ -416,7 +423,9 @@ class HLSControler:
 
     def _set_next_uri(self):
         # keep only the past three segments
-        self.fetcher.delete_cache(lambda x: x <= self._player_sequence - 3)
+        if self._n_segments_keep != -1:
+            self.fetcher.delete_cache(lambda x: 
+                x <= self._player_sequence - self._n_segments_keep)
         self._player_sequence += 1
         d = self.fetcher.get_file(self._player_sequence)
         d.addCallback(self.player.set_uri)
@@ -568,6 +577,9 @@ def main():
     parser.add_option('-D', '--no-display', action="store_true",
                       dest='nodisplay', default=False,
                       help='display no video (default: %default)')
+    parser.add_option('-k', '--keep', action="store",
+                      dest='keep', default=3, type="int",
+                      help='number of segments ot keep (default: %default, -1: unlimited)')
     parser.add_option('-p', '--path', action="store", metavar="PATH",
                       dest='path', default=None,
                       help='download files to PATH')
@@ -591,7 +603,7 @@ def main():
             p = None
             if not options.nodisplay:
                 p = GSTPlayer()
-            c = HLSControler(HLSFetcher(url, options.path))
+            c = HLSControler(HLSFetcher(url, options.path, options.keep))
             c.set_player(p)
             c.start()
 
