@@ -255,6 +255,7 @@ class HLSFetcher(object):
             logging.debug("Cookies: %r" % self._cookies)
             return content
         url = url.encode("utf-8")
+        self._cookies = {}
         d = client.getPage(url, cookies=self._cookies)
         d.addCallback(got_page)
         return d
@@ -459,10 +460,10 @@ class GSTPlayer:
         self.appsrc.connect("need-data", self.on_need_data)
         self.appsrc.set_property("max-bytes", 10000)
         if display:
-            decodebin = gst.element_factory_make("decodebin2", "decodebin")
-            decodebin.connect("new-decoded-pad", self.on_decoded_pad)
-            self.player.add(self.appsrc, decodebin)
-            gst.element_link_many(self.appsrc, decodebin)
+            self.decodebin = gst.element_factory_make("decodebin2", "decodebin")
+            self.decodebin.connect("new-decoded-pad", self.on_decoded_pad)
+            self.player.add(self.appsrc, self.decodebin)
+            gst.element_link_many(self.appsrc, self.decodebin)
         else:
             sink = gst.element_factory_make("filesink", "filesink")
             sink.set_property("location", "/tmp/hls-player.ts")
@@ -493,6 +494,10 @@ class GSTPlayer:
     def set_uri(self, filepath):
         import gst
         logging.debug("set uri %r" % filepath)
+        # FIXME: BIG hack to reduce the initial starting time...
+        queue0 = self.decodebin.get_by_name("multiqueue0")
+        if queue0:
+            queue0.set_property("max-size-bytes", 100000)
         f = open(filepath)
         self.appsrc.emit('push-buffer', gst.Buffer(f.read()))
 
@@ -508,10 +513,9 @@ class GSTPlayer:
         elif t == gst.MESSAGE_STATE_CHANGED:
             if message.src == self.player:
                 o, n, p = message.parse_state_changed()
-                print "State changed from %r to %r pending %r" % (o, n, p)
 
     def on_sync_message(self, bus, message):
-        print "Message: %r" % (message,)
+        logging.debug("Message: %r" % (message,))
         if message.structure is None:
             return
         message_name = message.structure.get_name()
@@ -553,12 +557,6 @@ class GSTPlayer:
                 e.set_state(gst.STATE_PLAYING)
             sink_pad = q2.get_pad("sink")
             pad.link(sink_pad)
-
-    def on_overrun(self, element):
-        print "overrun on %r" % (element,)
-
-    def on_underrun(self, element):
-        print "underrun on %r" % (element,)
 
     def on_enough_data(self):
         logging.debug("Player is full up!");
