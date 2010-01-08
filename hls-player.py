@@ -134,7 +134,7 @@ class M3U8(object):
         # update this "constructed" playlist,
         # return wether it has actually been updated
         if self._last_content and content == self._last_content:
-            logging.debug("Content didn't change")
+            logging.info("Content didn't change")
             self._update_tries += 1
             return False
 
@@ -154,7 +154,7 @@ class M3U8(object):
         self._lines = get_lines_iter(content)
         first_line = self._lines.next()
         if not first_line.startswith('#EXTM3U'):
-            logging.debug('Invalid first line: %r' % first_line)
+            logging.error('Invalid first line: %r' % first_line)
             raise
 
         self.target_duration = None
@@ -205,7 +205,7 @@ class M3U8(object):
                 print l
 
         if not self.has_programs() and not self.target_duration:
-            logging.debug("Invalid HLS stream: no programs & no duration")
+            logging.error("Invalid HLS stream: no programs & no duration")
             raise
         if len(new_files):
             logging.debug("got new files in playlist: %r", new_files)
@@ -268,7 +268,7 @@ class HLSFetcher(object):
     def _download_page(self, url, path):
         # client.downloadPage does not support cookies!
         def _check(x):
-            logging.debug(len(x))
+            logging.debug("Received segment of %r bytes." % len(x))
             return x
 
         d = self._get_page(url)
@@ -289,7 +289,7 @@ class HLSFetcher(object):
         self._cached_files
 
     def _got_file(self, path, l, f):
-        logging.debug("got " + l + " in " + path)
+        logging.debug("Saved " + l + " in " + path)
         self._cached_files[f['sequence']] = path
         if self.n_segments_keep != -1:
             self.delete_cache(lambda x: x <= f['sequence'] - self.n_segments_keep)
@@ -317,7 +317,9 @@ class HLSFetcher(object):
                 elif self._file_playlist.endlist():
                     delay = 1
                 else:
-                    delay = last_file['duration']
+                    delay = 1 # last_file['duration'] doesn't work
+                              # when duration is not in sync with
+                              # player, which can happen easily...
             return deferLater(reactor, delay, self._download_file, next)
         elif not self._file_playlist.endlist():
             self._file_playlisted = defer.Deferred()
@@ -498,7 +500,7 @@ class GSTPlayer:
 
     def set_uri(self, filepath):
         import gst
-        logging.debug("set uri %r" % filepath)
+        logging.debug("Pushing %r to appsrc" % filepath)
         # FIXME: BIG hack to reduce the initial starting time...
         queue0 = self.decodebin.get_by_name("multiqueue0")
         if queue0:
@@ -520,7 +522,7 @@ class GSTPlayer:
                 o, n, p = message.parse_state_changed()
 
     def on_sync_message(self, bus, message):
-        logging.debug("Message: %r" % (message,))
+        logging.debug("GstMessage: %r" % (message,))
         if message.structure is None:
             return
         message_name = message.structure.get_name()
@@ -564,11 +566,10 @@ class GSTPlayer:
             pad.link(sink_pad)
 
     def on_enough_data(self):
-        logging.debug("Player is full up!");
+        logging.info("Player is full up!");
         self._need_data = False;
 
     def on_need_data(self, src, length):
-        logging.debug("Player is hungry! %r" % length);
         self._need_data = True;
         self._on_about_to_finish()
 
@@ -612,7 +613,9 @@ def main():
         sys.exit(1)
 
     if options.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG,
+                            format='%(asctime)s %(levelname)-8s %(message)s',
+                            datefmt='%d %b %Y %H:%M:%S')
 
     for url in args:
         for l in range(options.n):
