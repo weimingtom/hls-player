@@ -232,14 +232,15 @@ class M3U8(object):
 
 class HLSFetcher(object):
 
-    def __init__(self, url, path=None, n_segments_keep=-1, program=1, bitrate=200000):
+    def __init__(self, url, options, n_segments_keep=-1, program=1, bitrate=200000):
         self.url = url
-        self.path = path
+        self.path = options.path
+        self.referer = options.referer
         if not self.path:
             self.path = tempfile.mkdtemp()
         self.program = program
         self.bitrate = bitrate
-        self.n_segments_keep = n_segments_keep
+        self.n_segments_keep = options.keep
 
         self._program_playlist = None
         self._file_playlist = None
@@ -256,7 +257,10 @@ class HLSFetcher(object):
             return content
         url = url.encode("utf-8")
         self._cookies = {}
-        d = client.getPage(url, cookies=self._cookies)
+        headers = {}
+        if self.referer:
+            headers['Referer'] = self.referer
+        d = client.getPage(url, cookies=self._cookies, headers=headers)
         d.addCallback(got_page)
         return d
 
@@ -429,7 +433,7 @@ class HLSControler:
     def _set_next_uri(self):
         # keep only the past three segments
         if self._n_segments_keep != -1:
-            self.fetcher.delete_cache(lambda x: 
+            self.fetcher.delete_cache(lambda x:
                 x <= self._player_sequence - self._n_segments_keep)
         self._player_sequence += 1
         d = self.fetcher.get_file(self._player_sequence)
@@ -596,6 +600,9 @@ def main():
     parser.add_option('-n', '--number', action="store",
                       dest='n', default=1, type="int",
                       help='number of player to start (default: %default)')
+    parser.add_option('-r', '--referer', action="store", metavar="URL",
+                      dest='referer', default=None,
+                      help='Sends the "Referer Page" information with URL')
 
     options, args = parser.parse_args()
 
@@ -612,7 +619,7 @@ def main():
             if urlparse.urlsplit(url).scheme == '':
                 url = "http://" + url
 
-            c = HLSControler(HLSFetcher(url, options.path, options.keep))
+            c = HLSControler(HLSFetcher(url, options))
             if not options.nodisplay:
                 p = GSTPlayer(display = not options.save)
                 c.set_player(p)
