@@ -256,7 +256,8 @@ class HLSFetcher(object):
             logging.debug("Cookies: %r" % self._cookies)
             return content
         url = url.encode("utf-8")
-        self._cookies = {}
+        if 'HLS_PLAYER_RESET_COOKIES' in os.environ.keys():
+            self._cookies = {}
         headers = {}
         if self.referer:
             headers['Referer'] = self.referer
