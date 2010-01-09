@@ -7,10 +7,6 @@ setup(
         'console_scripts': [ 'hls-player = HLS.player:main' ]
         },
 
-    package_data = {
-        '': ['LICENSE', 'README'],
-        },
-
     author = "Marc-Andre Lureau",
     author_email = "marcandre.lureau@gmail.com",
     description = "HTTP Live Streaming player",
