@@ -1,0 +1,39 @@
+http live streaming player
+==========================
+
+A simple HTTP Live Streaming player written in Python, using GStreamer.
+
+Installation:
+
+    sudo python setup.py install
+
+Play the sample clip from Apple:
+
+    hls-player http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8
+
+or RTVE:
+
+    hls-player http://iphonelive.rtve.es/stream1.m3u8 -r http://m.rtve.es/live/
+
+And that is the command line help:
+
+
+    Usage: hls-player [options] url...
+    
+    Options:
+      --version             show program's version number and exit
+      -h, --help            show this help message and exit
+      -v, --verbose         print some debugging (default: False)
+      -b BITRATE, --bitrate=BITRATE
+                            desired bitrate (default: 200000)
+      -k KEEP, --keep=KEEP  number of segments ot keep (default: 3, -1: unlimited)
+      -r URL, --referer=URL
+                            Sends the "Referer Page" information with URL
+      -D, --no-display      display no video (default: False)
+      -s, --save            save instead of watch (saves to /tmp/hls-player.ts)
+      -p PATH, --path=PATH  download files to PATH
+      -n N, --number=N      number of player to start (default: 1)
+
+
+Read the IETF specification:
+    http://tools.ietf.org/html/draft-pantos-http-live-streaming-02
