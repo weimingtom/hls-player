@@ -12,7 +12,7 @@
 # the Free Software Foundation.
 # This file is distributed without any warranty; without even the implied
 # warranty of merchantability or fitness for a particular purpose.
-# See "LICENSE.GPL" in the source distribution for more information.
+# See "LICENSE" in the source distribution for more information.
 
 import sys
 import urlparse
@@ -81,11 +81,13 @@ class M3U8(object):
     def has_programs(self):
         return len(self._programs) != 0
 
-    def get_program_playlist(self, program_id=None, bandwidth=None):
+    def get_program_playlist(self, program_id=None, bitrate=None):
         # return the (uri, dict) of the best matching playlist
         if not self.has_programs():
             raise
-        return (self._programs[0]['uri'], self._programs[0])
+        _, best = min((abs(int(x['BANDWIDTH']) - bitrate), x)
+                for x in self._programs)
+        return best['uri'], best
 
     def reload_delay(self):
         # return the time between request updates, in seconds
@@ -232,14 +234,14 @@ class M3U8(object):
 
 class HLSFetcher(object):
 
-    def __init__(self, url, options, n_segments_keep=-1, program=1, bitrate=200000):
+    def __init__(self, url, options, program=1):
         self.url = url
         self.path = options.path
         self.referer = options.referer
         if not self.path:
             self.path = tempfile.mkdtemp()
         self.program = program
-        self.bitrate = bitrate
+        self.bitrate = options.bitrate
         self.n_segments_keep = options.keep
 
         self._program_playlist = None
@@ -587,24 +589,27 @@ def main():
     parser.add_option('-v', '--verbose', action="store_true",
                       dest='verbose', default=False,
                       help='print some debugging (default: %default)')
+    parser.add_option('-b', '--bitrate', action="store",
+                      dest='bitrate', default=200000, type="int",
+                      help='desired bitrate (default: %default)')
+    parser.add_option('-k', '--keep', action="store",
+                      dest='keep', default=3, type="int",
+                      help='number of segments ot keep (default: %default, -1: unlimited)')
+    parser.add_option('-r', '--referer', action="store", metavar="URL",
+                      dest='referer', default=None,
+                      help='Sends the "Referer Page" information with URL')
     parser.add_option('-D', '--no-display', action="store_true",
                       dest='nodisplay', default=False,
                       help='display no video (default: %default)')
     parser.add_option('-s', '--save', action="store_true",
                       dest='save', default=False,
                       help='save instead of watch (saves to /tmp/hls-player.ts)')
-    parser.add_option('-k', '--keep', action="store",
-                      dest='keep', default=3, type="int",
-                      help='number of segments ot keep (default: %default, -1: unlimited)')
     parser.add_option('-p', '--path', action="store", metavar="PATH",
                       dest='path', default=None,
                       help='download files to PATH')
     parser.add_option('-n', '--number', action="store",
                       dest='n', default=1, type="int",
                       help='number of player to start (default: %default)')
-    parser.add_option('-r', '--referer', action="store", metavar="URL",
-                      dest='referer', default=None,
-                      help='Sends the "Referer Page" information with URL')
 
     options, args = parser.parse_args()
 
