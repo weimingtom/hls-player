@@ -1,7 +1,9 @@
+from HLS import __version__
+
 from setuptools import setup, find_packages
 setup(
     name = "HLSPlayer",
-    version = "0.2",
+    version = __version__,
     packages = find_packages(),
     entry_points = {
         'console_scripts': [ 'hls-player = HLS.player:main' ]

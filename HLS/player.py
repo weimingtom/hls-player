@@ -26,6 +26,7 @@ from twisted.internet import gtk2reactor
 gtk2reactor.install()
 from twisted.internet import reactor
 
+from HLS import __version__
 from HLS.fetcher import HLSFetcher
 from HLS.m3u8 import M3U8
 
@@ -211,7 +212,8 @@ class GSTPlayer:
 def main():
     gtk.gdk.threads_init()
 
-    parser = optparse.OptionParser(usage='%prog [options] url...', version="%prog")
+    parser = optparse.OptionParser(usage='%prog [options] url...',
+                                   version="%prog " + __version__)
 
     parser.add_option('-v', '--verbose', action="store_true",
                       dest='verbose', default=False,
