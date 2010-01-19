@@ -88,6 +88,11 @@ class HLSFetcher(object):
             del self._cached_files[i]
         self._cached_files
 
+    def _got_file_failed(self, e):
+        if self._new_filed:
+            self._new_filed.errback(e)
+            self._new_filed = None
+
     def _got_file(self, path, l, f):
         logging.debug("Saved " + l + " in " + path)
         self._cached_files[f['sequence']] = path
@@ -103,6 +108,7 @@ class HLSFetcher(object):
         name = urlparse.urlparse(f['file']).path.split('/')[-1]
         path = os.path.join(self.path, name)
         d = self._download_page(l, path)
+        d.addErrback(self._got_file_failed)
         d.addCallback(self._got_file, l, f)
         return d
 
@@ -195,12 +201,16 @@ class HLSFetcher(object):
             logging.debug('waiting for %r (available: %r)' % (sequence, keys))
         return d
 
+    def _start_get_files(self, x):
+        self._new_filed = defer.Deferred()
+        self._get_files_loop()
+        return self._new_filed
+
     def start(self):
         self._files = None
         d = self._reload_playlist(M3U8(self.url))
-        d.addCallback(lambda _: self._get_files_loop())
-        self._new_filed = defer.Deferred()
-        return self._new_filed
+        d.addCallback(self._start_get_files)
+        return d
 
     def stop(self):
         pass
