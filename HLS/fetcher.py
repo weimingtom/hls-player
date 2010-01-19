@@ -26,15 +26,21 @@ from HLS.m3u8 import M3U8
 
 class HLSFetcher(object):
 
-    def __init__(self, url, options, program=1):
+    def __init__(self, url, options=None, program=1):
         self.url = url
-        self.path = options.path
-        self.referer = options.referer
+        self.program = program
+        if options:
+            self.path = options.path
+            self.referer = options.referer
+            self.bitrate = options.bitrate
+            self.n_segments_keep = options.keep
+        else:
+            self.path = None
+            self.referer = None
+            self.bitrate = 200000
+            self.n_segments_keep = 3
         if not self.path:
             self.path = tempfile.mkdtemp()
-        self.program = program
-        self.bitrate = options.bitrate
-        self.n_segments_keep = options.keep
 
         self._program_playlist = None
         self._file_playlist = None
