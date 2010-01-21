@@ -140,11 +140,12 @@ class M3U8(object):
             elif l.startswith('#EXTINF'):
                 v = l[8:].split(',')
                 d = dict(file=self._lines.next().strip(),
-                         title=v[1].strip(),
                          duration=int(v[0]),
                          sequence=i,
                          discontinuity=discontinuity,
                          allow_cache=allow_cache)
+                if len(v) >= 2:
+                    d['title'] = v[1].strip()
                 discontinuity = False
                 i += 1
                 new = self._set_file(i, d)
