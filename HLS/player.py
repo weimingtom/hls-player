@@ -171,7 +171,10 @@ class GSTPlayer:
             q1.props.max_size_time = 0
             #q1.props.max_size_bytes = 0
             colorspace = gst.element_factory_make("ffmpegcolorspace", "colorspace")
-            videosink = gst.element_factory_make("xvimagesink", "videosink")
+            if 'HLS_VIDEOSINK' in os.environ.keys():
+                videosink = gst.element_factory_make(os.environ['HLS_VIDEOSINK'], "videosink")
+            else:
+                videosink = gst.element_factory_make("xvimagesink", "videosink")
             self.player.add(q1, colorspace, videosink)
             gst.element_link_many(q1, colorspace, videosink)
             for e in [q1, colorspace, videosink]:
@@ -185,7 +188,11 @@ class GSTPlayer:
             #q2.props.max_size_bytes = 0
             audioconv = gst.element_factory_make("audioconvert", "audioconv")
             audioresample =  gst.element_factory_make("audioresample", "ar")
-            audiosink = gst.element_factory_make("autoaudiosink", "audiosink")
+            if 'HLS_AUDIOSINK' in os.environ.keys():
+                audiosink = gst.element_factory_make(os.environ['HLS_AUDIOSINK'], "audiosink")
+            else:
+                audiosink = gst.element_factory_make("autoaudiosink", "audiosink")
+
             self.player.add(q2, audioconv, audioresample, audiosink)
             gst.element_link_many(q2, audioconv, audioresample, audiosink)
             for e in [q2, audioconv, audioresample, audiosink]:
