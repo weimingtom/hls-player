@@ -160,6 +160,7 @@ class HLSFetcher(object):
             if not self._files:
                 self._files = pl.iter_files()
             if not pl.endlist():
+                # FIXME: reload delay - previous request time
                 reactor.callLater(pl.reload_delay(), self._reload_playlist, pl)
             if self._file_playlisted:
                 self._file_playlisted.callback(pl)
