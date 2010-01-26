@@ -18,6 +18,7 @@ import sys
 import urlparse
 import optparse
 import logging
+import os
 
 import pygtk, gtk, gobject
 gobject.threads_init()
