@@ -230,6 +230,9 @@ def main():
     parser.add_option('-b', '--bitrate', action="store",
                       dest='bitrate', default=200000, type="int",
                       help='desired bitrate (default: %default)')
+    parser.add_option('-u', '--buffer', action="store", metavar="N",
+                      dest='buffer', default=3, type="int",
+                      help='pre-buffer N segments at start')
     parser.add_option('-k', '--keep', action="store",
                       dest='keep', default=3, type="int",
                       help='number of segments ot keep (default: %default, -1: unlimited)')

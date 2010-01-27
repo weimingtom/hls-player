@@ -35,18 +35,20 @@ class HLSFetcher(object):
             self.referer = options.referer
             self.bitrate = options.bitrate
             self.n_segments_keep = options.keep
+            self.nbuffer = options.buffer
         else:
             self.path = None
             self.referer = None
             self.bitrate = 200000
             self.n_segments_keep = 3
+            self.nbuffer = 3
         if not self.path:
             self.path = tempfile.mkdtemp()
 
         self._program_playlist = None
         self._file_playlist = None
         self._cookies = {}
-        self._cached_files = {}
+        self._cached_files = {} # sequence n -> path
 
         self._files = None # the iter of the playlist files download
         self._next_download = None # the delayed download defer, if any
@@ -57,8 +59,9 @@ class HLSFetcher(object):
             logging.debug("Cookies: %r" % self._cookies)
             return content
         def got_page_error(e, url):
-            logging.error("For url %r" % url)
             log.err(e)
+            return e
+
         url = url.encode("utf-8")
         if 'HLS_RESET_COOKIES' in os.environ.keys():
             self._cookies = {}
@@ -127,13 +130,13 @@ class HLSFetcher(object):
         if next:
             delay = 0
             if last_file:
-                if not self._cached_files.has_key(last_file['sequence'] - 1) or \
-                        not self._cached_files.has_key(last_file['sequence'] - 2):
+                # FIXME not only the last nbuffer, but the nbuffer -1 ...
+                if self.nbuffer > 0 and not self._cached_files.has_key(last_file['sequence'] - (self.nbuffer - 1)):
                     delay = 0
                 elif self._file_playlist.endlist():
                     delay = 1
                 else:
-                    delay = 1 # last_file['duration'] doesn't work
+                    delay = last_file['duration'] * 0.5 # doesn't work
                               # when duration is not in sync with
                               # player, which can happen easily...
             return deferLater(reactor, delay, self._download_segment, next)
