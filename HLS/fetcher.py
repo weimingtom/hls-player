@@ -72,11 +72,25 @@ class HLSFetcher(object):
             return x
 
         d = self._get_page(url)
-        f = open(path, 'w')
         d.addCallback(_check)
-        d.addCallback(lambda x: f.write(x))
-        d.addBoth(lambda _: f.close())
-        d.addCallback(lambda _: path)
+        return d
+
+        return d
+
+    def _download_segment(self, f):
+        url = HLS.make_url(self._file_playlist.url, f['file'])
+        name = urlparse.urlparse(f['file']).path.split('/')[-1]
+        path = os.path.join(self.path, name)
+        d = self._download_page(url, path)
+        if self.n_segments_keep != 0:
+            file = open(path, 'w')
+            d.addCallback(lambda x: file.write(x))
+            d.addBoth(lambda _: file.close())
+            d.addCallback(lambda _: path)
+            d.addErrback(self._got_file_failed)
+            d.addCallback(self._got_file, url, f)
+        else:
+            d.addCallback(lambda _: (None, path, f))
         return d
 
     def delete_cache(self, f):
@@ -93,24 +107,15 @@ class HLSFetcher(object):
             self._new_filed.errback(e)
             self._new_filed = None
 
-    def _got_file(self, path, l, f):
-        logging.debug("Saved " + l + " in " + path)
+    def _got_file(self, path, url, f):
+        logging.debug("Saved " + url + " in " + path)
         self._cached_files[f['sequence']] = path
         if self.n_segments_keep != -1:
             self.delete_cache(lambda x: x <= f['sequence'] - self.n_segments_keep)
         if self._new_filed:
-            self._new_filed.callback((path, l, f))
+            self._new_filed.callback((path, url, f))
             self._new_filed = None
-        return (path, l, f)
-
-    def _download_file(self, f):
-        l = HLS.make_url(self._file_playlist.url, f['file'])
-        name = urlparse.urlparse(f['file']).path.split('/')[-1]
-        path = os.path.join(self.path, name)
-        d = self._download_page(l, path)
-        d.addErrback(self._got_file_failed)
-        d.addCallback(self._got_file, l, f)
-        return d
+        return (path, url, f)
 
     def _get_next_file(self, last_file=None):
         next = self._files.next()
@@ -126,7 +131,7 @@ class HLSFetcher(object):
                     delay = 1 # last_file['duration'] doesn't work
                               # when duration is not in sync with
                               # player, which can happen easily...
-            return deferLater(reactor, delay, self._download_file, next)
+            return deferLater(reactor, delay, self._download_segment, next)
         elif not self._file_playlist.endlist():
             self._file_playlisted = defer.Deferred()
             self._file_playlisted.addCallback(lambda x: self._get_next_file(last_file))
