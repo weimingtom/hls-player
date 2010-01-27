@@ -17,6 +17,7 @@ import os, os.path
 import tempfile
 import urlparse
 
+from twisted.python import log
 from twisted.web import client
 from twisted.internet import defer, reactor
 from twisted.internet.task import deferLater
@@ -55,6 +56,9 @@ class HLSFetcher(object):
         def got_page(content):
             logging.debug("Cookies: %r" % self._cookies)
             return content
+        def got_page_error(e, url):
+            logging.error("For url %r" % url)
+            log.err(e)
         url = url.encode("utf-8")
         if 'HLS_RESET_COOKIES' in os.environ.keys():
             self._cookies = {}
@@ -63,6 +67,7 @@ class HLSFetcher(object):
             headers['Referer'] = self.referer
         d = client.getPage(url, cookies=self._cookies, headers=headers)
         d.addCallback(got_page)
+        d.addErrback(got_page_error, url)
         return d
 
     def _download_page(self, url, path):

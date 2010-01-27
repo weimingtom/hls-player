@@ -26,6 +26,7 @@ gobject.threads_init()
 from twisted.internet import gtk2reactor
 gtk2reactor.install()
 from twisted.internet import reactor
+from twisted.python import log
 
 from HLS import __version__
 from HLS.fetcher import HLSFetcher
@@ -254,6 +255,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    log.PythonLoggingObserver().start()
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG,
                             format='%(asctime)s %(levelname)-8s %(message)s',
