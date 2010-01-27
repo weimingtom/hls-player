@@ -59,6 +59,7 @@ class HLSFetcher(object):
             logging.debug("Cookies: %r" % self._cookies)
             return content
         def got_page_error(e, url):
+            logging.error(url)
             log.err(e)
             return e
 
