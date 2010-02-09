@@ -19,6 +19,8 @@ __version__ = '.'.join(map(str,__version_info__))
 
 
 def make_url(base_url, url):
+    import pdb
+    pdb.set_trace ()
     if urlparse.urlsplit(url).scheme == '':
         url = urlparse.urljoin(base_url, url)
     if 'HLS_PLAYER_SHIFT_PORT' in os.environ.keys():

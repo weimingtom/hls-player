@@ -20,10 +20,16 @@ import urlparse
 from twisted.python import log
 from twisted.web import client
 from twisted.internet import defer, reactor
-from twisted.internet.task import deferLater
+#from twisted.internet.task import deferLater
 
 import HLS
 from HLS.m3u8 import M3U8
+
+def deferLater(clock, delay, callable, *args, **kw):
+    d = defer.Deferred()
+    d.addCallback(lambda ignored: callable(*args, **kw))
+    clock.callLater(delay, d.callback, None)
+    return d
 
 class HLSFetcher(object):
 
@@ -60,8 +66,7 @@ class HLSFetcher(object):
             return content
         def got_page_error(e, url):
             logging.error(url)
-            log.err(e)
-            return e
+            print e
 
         url = url.encode("utf-8")
         if 'HLS_RESET_COOKIES' in os.environ.keys():
@@ -74,30 +79,38 @@ class HLSFetcher(object):
         d.addErrback(got_page_error, url)
         return d
 
-    def _download_page(self, url, path):
-        # client.downloadPage does not support cookies!
+    def _download_segment(self, f):
+        def _got_file_failed(e, self):
+            if self._new_filed:
+                self._new_filed.errback(e)
+                self._new_filed = None
+                return e
+        def _got_file(path, self, url, f):
+            logging.debug("Saved " + url + " in " + path)
+            self._cached_files[f['sequence']] = path
+            if self.n_segments_keep != -1:
+                self.delete_cache(lambda x: x <= f['sequence'] - self.n_segments_keep)
+            if self._new_filed:
+                self._new_filed.callback((path, url, f))
+                self._new_filed = None
+            return (path, url, f)
         def _check(x):
             logging.debug("Received segment of %r bytes." % len(x))
             return x
 
-        d = self._get_page(url)
-        d.addCallback(_check)
-        return d
-
-        return d
-
-    def _download_segment(self, f):
+        print '%r %r' % (self._file_playlist.url, f['file'])
         url = HLS.make_url(self._file_playlist.url, f['file'])
         name = urlparse.urlparse(f['file']).path.split('/')[-1]
         path = os.path.join(self.path, name)
-        d = self._download_page(url, path)
+        d = self._get_page(url)
+        d.addCallback(_check)
         if self.n_segments_keep != 0:
             file = open(path, 'w')
             d.addCallback(lambda x: file.write(x))
-            d.addBoth(lambda _: file.close())
             d.addCallback(lambda _: path)
-            d.addErrback(self._got_file_failed)
-            d.addCallback(self._got_file, url, f)
+            d.addErrback(_got_file_failed, self)
+            d.addCallback(_got_file, self, url, f)
+            d.addBoth(lambda _: file.close())
         else:
             d.addCallback(lambda _: (None, path, f))
         return d
@@ -110,21 +123,6 @@ class HLSFetcher(object):
             os.remove(filename)
             del self._cached_files[i]
         self._cached_files
-
-    def _got_file_failed(self, e):
-        if self._new_filed:
-            self._new_filed.errback(e)
-            self._new_filed = None
-
-    def _got_file(self, path, url, f):
-        logging.debug("Saved " + url + " in " + path)
-        self._cached_files[f['sequence']] = path
-        if self.n_segments_keep != -1:
-            self.delete_cache(lambda x: x <= f['sequence'] - self.n_segments_keep)
-        if self._new_filed:
-            self._new_filed.callback((path, url, f))
-            self._new_filed = None
-        return (path, url, f)
 
     def _get_next_file(self, last_file=None):
         next = self._files.next()
@@ -142,6 +140,7 @@ class HLSFetcher(object):
                               # player, which can happen easily...
             return deferLater(reactor, delay, self._download_segment, next)
         elif not self._file_playlist.endlist():
+            # when new uri are added to the playlist
             self._file_playlisted = defer.Deferred()
             self._file_playlisted.addCallback(lambda x: self._get_next_file(last_file))
             return self._file_playlisted
@@ -160,6 +159,7 @@ class HLSFetcher(object):
         # and loop
         d.addCallback(self._get_files_loop)
         d.addErrback(self._handle_end)
+        d.addErrback(lambda f: f.trap(Exception))
 
     def _playlist_updated(self, pl):
         if pl.has_programs():
@@ -185,7 +185,7 @@ class HLSFetcher(object):
 
     def _got_playlist_content(self, content, pl):
         if not pl.update(content):
-            # if the playlist cannot be loaded, start a reload timer
+            # if the playlist is not updated, start a reload timer
             d = deferLater(reactor, pl.reload_delay(), self._fetch_playlist, pl)
             d.addCallback(self._got_playlist_content, pl)
             return d
@@ -200,6 +200,7 @@ class HLSFetcher(object):
         d = self._fetch_playlist(pl)
         d.addCallback(self._got_playlist_content, pl)
         d.addCallback(self._playlist_updated)
+        #d.addErrback(lambda f: f.trap(Exception))
         return d
 
     def get_file(self, sequence):

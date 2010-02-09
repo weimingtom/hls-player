@@ -20,11 +20,17 @@ import optparse
 import logging
 import os
 
-import pygtk, gtk, gobject
+import gobject
 gobject.threads_init()
 
-from twisted.internet import gtk2reactor
-gtk2reactor.install()
+if False:
+    import pygtk, gtk
+    from twisted.internet import gtk2reactor
+    gtk2reactor.install()
+    gtk.gdk.threads_init()
+else:
+    from twisted.internet import glib2reactor
+
 from twisted.internet import reactor
 from twisted.python import log
 
@@ -219,7 +225,6 @@ class GSTPlayer:
 
 
 def main():
-    gtk.gdk.threads_init()
 
     parser = optparse.OptionParser(usage='%prog [options] url...',
                                    version="%prog " + __version__)
@@ -258,7 +263,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    log.PythonLoggingObserver().start()
+    #log.PythonLoggingObserver().start()
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG,
                             format='%(asctime)s %(levelname)-8s %(message)s',
@@ -267,8 +272,8 @@ def main():
     for url in args:
         for l in range(options.n):
 
-            if urlparse.urlsplit(url).scheme == '':
-                url = "http://" + url
+            #if urlparse.urlsplit(url).scheme == '':
+            #    url = "http://" + url
 
             c = HLSControler(HLSFetcher(url, options))
             if not options.nodisplay:

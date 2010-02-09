@@ -97,7 +97,7 @@ class M3U8(object):
         self._last_content = content
 
         def get_lines_iter(c):
-            c = c.decode("utf-8-sig")
+            #c = c.decode("utf-8-sig")
             for l in c.split('\n'):
                 if l.startswith('#EXT'):
                     yield l
