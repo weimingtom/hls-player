@@ -19,7 +19,7 @@ import urlparse
 
 from twisted.python import log
 from twisted.web import client
-from twisted.internet import defer, reactor
+from twisted.internet import defer, reactor, task
 from twisted.internet.task import deferLater
 
 import HLS
@@ -53,6 +53,9 @@ class HLSFetcher(object):
         self._files = None # the iter of the playlist files download
         self._next_download = None # the delayed download defer, if any
         self._file_playlisted = None # the defer to wait until new files are added to playlist
+
+        self._pl_task = None
+        self._seg_task = None
 
     def _get_page(self, url):
         def got_page(content):
@@ -126,24 +129,17 @@ class HLSFetcher(object):
             self._new_filed = None
         return (path, url, f)
 
-    def _get_next_file(self, last_file=None):
+    def _get_next_file(self):
         next = self._files.next()
         if next:
-            delay = 0
-            if last_file:
-                # FIXME not only the last nbuffer, but the nbuffer -1 ...
-                if self.nbuffer > 0 and not self._cached_files.has_key(last_file['sequence'] - (self.nbuffer - 1)):
-                    delay = 0
-                elif self._file_playlist.endlist():
-                    delay = 1
-                else:
-                    delay = last_file['duration'] * 0.5 # doesn't work
-                              # when duration is not in sync with
-                              # player, which can happen easily...
-            return deferLater(reactor, delay, self._download_segment, next)
+            d = self._download_segment(next)
+            return d
         elif not self._file_playlist.endlist():
+            self._seg_task.stop()
             self._file_playlisted = defer.Deferred()
-            self._file_playlisted.addCallback(lambda x: self._get_next_file(last_file))
+            self._file_playlisted.addCallback(lambda x: self._get_next_file())
+            self._file_playlisted.addCallback(self._next_file_delay)
+            self._file_playlisted.addCallback(self._seg_task.start)
             return self._file_playlisted
 
     def _handle_end(self, failure):
@@ -151,15 +147,22 @@ class HLSFetcher(object):
         print "End of media"
         reactor.stop()
 
-    def _get_files_loop(self, last_file=None):
-        if last_file:
-            (path, l, f) = last_file
-        else:
-            f = None
-        d = self._get_next_file(f)
-        # and loop
-        d.addCallback(self._get_files_loop)
-        d.addErrback(self._handle_end)
+    def _next_file_delay(self, f):
+        delay = f[2]["duration"]
+        # FIXME not only the last nbuffer, but the nbuffer -1 ...
+        if self.nbuffer > 0 and not self._cached_files.has_key(f[2]['sequence'] - (self.nbuffer - 1)):
+            delay = 0
+        elif self._file_playlist.endlist():
+            delay = 1
+        return delay
+
+    def _get_files_loop(self):
+        if not self._seg_task:
+            self._seg_task = task.LoopingCall(self._get_next_file)
+        d = self._get_next_file()
+        d.addCallback(self._next_file_delay)
+        d.addCallback(self._seg_task.start)
+        return d
 
     def _playlist_updated(self, pl):
         if pl.has_programs():
@@ -174,8 +177,9 @@ class HLSFetcher(object):
             if not self._files:
                 self._files = pl.iter_files()
             if not pl.endlist():
-                # FIXME: reload delay - previous request time
-                reactor.callLater(pl.reload_delay(), self._reload_playlist, pl)
+                if not self._pl_task:
+                    self._pl_task = task.LoopingCall(self._reload_playlist, pl)
+                    self._pl_task.start(10, False)
             if self._file_playlisted:
                 self._file_playlisted.callback(pl)
                 self._file_playlisted = None
@@ -186,6 +190,8 @@ class HLSFetcher(object):
     def _got_playlist_content(self, content, pl):
         if not pl.update(content):
             # if the playlist cannot be loaded, start a reload timer
+            self._pl_task.stop()
+            self._pl_task.start(pl.reload_delay(), False)
             d = deferLater(reactor, pl.reload_delay(), self._fetch_playlist, pl)
             d.addCallback(self._got_playlist_content, pl)
             return d
