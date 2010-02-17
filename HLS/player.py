@@ -264,6 +264,7 @@ def main():
                             format='%(asctime)s %(levelname)-8s %(message)s',
                             datefmt='%d %b %Y %H:%M:%S')
 
+    n = 0
     for url in args:
         for l in range(options.n):
 
@@ -275,7 +276,9 @@ def main():
                 p = GSTPlayer(display = not options.save)
                 c.set_player(p)
 
-            c.start()
+            delay = 10.0 / options.n * n
+            n += 1
+            reactor.callLater(delay, c.start)
 
     reactor.run()
 
